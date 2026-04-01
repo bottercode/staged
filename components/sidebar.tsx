@@ -9,6 +9,7 @@ import {
   Globe,
   FileText,
   Bot,
+  Settings,
 } from "lucide-react"
 import { useRouter, usePathname } from "next/navigation"
 import { trpc } from "@/lib/trpc/client"
@@ -30,6 +31,7 @@ import {
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { useMemo, useState } from "react"
+import { AgentSettingsDialog } from "./agent-settings-dialog"
 
 type Tab = "chat" | "tasks" | "portals" | "docs" | "agent"
 
@@ -45,11 +47,13 @@ function UnreadBadge({ count }: { count: number }) {
 function NavRail({
   activeTab,
   onTabChange,
+  onOpenSettings,
   totalUnread,
   workspaceName,
 }: {
   activeTab: Tab
   onTabChange: (tab: Tab) => void
+  onOpenSettings: () => void
   totalUnread: number
   workspaceName: string
 }) {
@@ -157,6 +161,18 @@ function NavRail({
             </button>
           </TooltipTrigger>
           <TooltipContent side="right">AI Agent</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onOpenSettings}
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            >
+              <Settings className="h-4.5 w-4.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">Agent Settings</TooltipContent>
         </Tooltip>
       </div>
     </TooltipProvider>
@@ -483,6 +499,7 @@ export function Sidebar() {
   const [showCreateDm, setShowCreateDm] = useState(false)
   const [showCreateBoard, setShowCreateBoard] = useState(false)
   const [showCreatePortal, setShowCreatePortal] = useState(false)
+  const [showAgentSettings, setShowAgentSettings] = useState(false)
 
   // Determine active tab from URL
   const activeTab: Tab = pathname.includes("/agent")
@@ -578,6 +595,7 @@ export function Sidebar() {
       <NavRail
         activeTab={activeTab}
         onTabChange={handleTabChange}
+        onOpenSettings={() => setShowAgentSettings(true)}
         totalUnread={totalUnread}
         workspaceName={workspace?.name ?? "Staged"}
       />
@@ -644,6 +662,10 @@ export function Sidebar() {
         open={showCreatePortal}
         onOpenChange={setShowCreatePortal}
         workspaceId={workspace?.id}
+      />
+      <AgentSettingsDialog
+        open={showAgentSettings}
+        onOpenChange={setShowAgentSettings}
       />
     </div>
   )

@@ -12,7 +12,7 @@ import {
   ChevronRight,
   ChevronUp,
   FileCode,
-  Terminal,
+  Terminal as TerminalIcon,
   Search,
   FolderOpen,
   PenLine,
@@ -25,11 +25,11 @@ import {
   FileText,
   Code2,
   Plus,
-  SquareTerminal,
   Minus,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { readAgentSettings, type AgentProviderApiKeys } from "@/lib/agent-settings"
 
 // ── Types ────────────────────────────────────────────────
 
@@ -50,7 +50,7 @@ const TOOL_ICONS: Record<string, React.ReactNode> = {
   Read: <FileCode className="h-3.5 w-3.5" />,
   Write: <PenLine className="h-3.5 w-3.5" />,
   Edit: <PenLine className="h-3.5 w-3.5" />,
-  Bash: <Terminal className="h-3.5 w-3.5" />,
+  Bash: <TerminalIcon className="h-3.5 w-3.5" />,
   Glob: <FolderOpen className="h-3.5 w-3.5" />,
   Grep: <Search className="h-3.5 w-3.5" />,
   WebFetch: <Search className="h-3.5 w-3.5" />,
@@ -143,7 +143,7 @@ function ToolCallBlock({
           <span className="h-2 w-2 flex-shrink-0 rounded-full bg-green-500" />
         )}
         <span className="text-muted-foreground">
-          {TOOL_ICONS[toolName] ?? <Terminal className="h-3.5 w-3.5" />}
+          {TOOL_ICONS[toolName] ?? <TerminalIcon className="h-3.5 w-3.5" />}
         </span>
         <span className="text-muted-foreground">
           {TOOL_LABELS[toolName] ?? toolName}
@@ -187,6 +187,25 @@ function ToolCallBlock({
   )
 }
 
+function ClaudeEventBlock({ event }: { event: Record<string, unknown> }) {
+  const type = typeof event.type === "string" ? event.type : "event"
+  const subtype = typeof event.subtype === "string" ? event.subtype : ""
+  const label = subtype ? `${type}.${subtype}` : type
+
+  return (
+    <div className="my-1 font-mono text-xs">
+      <details className="rounded border bg-muted/30 px-2 py-1">
+        <summary className="cursor-pointer text-muted-foreground">
+          Claude: {label}
+        </summary>
+        <pre className="mt-2 max-h-48 overflow-auto rounded bg-muted p-2 text-[11px] break-all whitespace-pre-wrap text-muted-foreground">
+          {JSON.stringify(event, null, 2)}
+        </pre>
+      </details>
+    </div>
+  )
+}
+
 // ── Recent folders helpers ───────────────────────────────
 
 const RECENT_KEY = "staged-agent-recent"
@@ -214,39 +233,26 @@ function removeRecentFolder(path: string) {
 // ── Model list ───────────────────────────────────────────
 
 const MODELS = [
-  {
-    id: "claude-sonnet-4-20250514",
-    label: "Claude Sonnet 4",
-    provider: "Anthropic",
-  },
-  {
-    id: "claude-opus-4-20250514",
-    label: "Claude Opus 4",
-    provider: "Anthropic",
-  },
-  {
-    id: "claude-haiku-4-20250414",
-    label: "Claude Haiku 4",
-    provider: "Anthropic",
-  },
-  { id: "gpt-4o", label: "GPT-4o", provider: "OpenAI" },
-  { id: "gpt-4o-mini", label: "GPT-4o Mini", provider: "OpenAI" },
-  { id: "o3", label: "o3", provider: "OpenAI" },
-  { id: "o4-mini", label: "o4-mini", provider: "OpenAI" },
-  {
-    id: "gemini-2.5-pro-preview-05-06",
-    label: "Gemini 2.5 Pro",
-    provider: "Google",
-  },
-  {
-    id: "gemini-2.5-flash-preview-04-17",
-    label: "Gemini 2.5 Flash",
-    provider: "Google",
-  },
-  { id: "grok-3", label: "Grok 3", provider: "xAI" },
-  { id: "grok-3-mini", label: "Grok 3 Mini", provider: "xAI" },
-  { id: "mistral-large-latest", label: "Mistral Large", provider: "Mistral" },
-  { id: "codestral-latest", label: "Codestral", provider: "Mistral" },
+  { id: "anthropic:sonnet", label: "Sonnet (Alias)", provider: "Anthropic" },
+  { id: "anthropic:opus", label: "Opus (Alias)", provider: "Anthropic" },
+  { id: "anthropic:haiku", label: "Haiku (Alias)", provider: "Anthropic" },
+  { id: "anthropic:claude-sonnet-4-6", label: "Claude Sonnet 4.6", provider: "Anthropic" },
+  { id: "anthropic:claude-opus-4-6", label: "Claude Opus 4.6", provider: "Anthropic" },
+  { id: "anthropic:claude-haiku-4-5", label: "Claude Haiku 4.5", provider: "Anthropic" },
+  { id: "openai:gpt-4o", label: "GPT-4o", provider: "OpenAI" },
+  { id: "openai:gpt-4o-mini", label: "GPT-4o Mini", provider: "OpenAI" },
+  { id: "openai:gpt-4.1", label: "GPT-4.1", provider: "OpenAI" },
+  { id: "openai:gpt-4.1-mini", label: "GPT-4.1 Mini", provider: "OpenAI" },
+  { id: "openai:o3", label: "o3", provider: "OpenAI" },
+  { id: "openai:o4-mini", label: "o4-mini", provider: "OpenAI" },
+  { id: "google:gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "Google" },
+  { id: "google:gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "Google" },
+  { id: "google:gemini-2.0-flash", label: "Gemini 2.0 Flash", provider: "Google" },
+  { id: "mistral:mistral-large-latest", label: "Mistral Large", provider: "Mistral" },
+  { id: "mistral:codestral-latest", label: "Codestral", provider: "Mistral" },
+  { id: "xai:grok-3", label: "Grok 3", provider: "xAI" },
+  { id: "xai:grok-3-mini", label: "Grok 3 Mini", provider: "xAI" },
+  { id: "__custom__", label: "Custom model ID...", provider: "Custom" },
 ]
 
 function ModelSelector({
@@ -258,7 +264,7 @@ function ModelSelector({
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
-  const current = MODELS.find((m) => m.id === value) ?? MODELS[0]
+  const current = MODELS.find((m) => m.id === value)
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -282,7 +288,7 @@ function ModelSelector({
         onClick={() => setOpen(!open)}
         className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
-        {current.label}
+        {current ? current.label : `Custom: ${value}`}
         <ChevronDown className="h-3 w-3" />
       </button>
       {open && (
@@ -296,7 +302,14 @@ function ModelSelector({
                 <button
                   key={m.id}
                   onClick={() => {
-                    onChange(m.id)
+                    if (m.id === "__custom__") {
+                      const customId = window.prompt(
+                        "Enter model as provider:model (e.g. google:gemini-2.5-pro)"
+                      )
+                      if (customId?.trim()) onChange(customId.trim())
+                    } else {
+                      onChange(m.id)
+                    }
                     setOpen(false)
                   }}
                   className={cn(
@@ -441,8 +454,7 @@ function FolderBrowserDialog({
               {browseData.folders.map((folder) => (
                 <button
                   key={folder}
-                  onDoubleClick={() => browse(`${browseData.path}/${folder}`)}
-                  onClick={() => setPathInput(`${browseData.path}/${folder}`)}
+                  onClick={() => browse(`${browseData.path}/${folder}`)}
                   className={cn(
                     "flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-muted",
                     pathInput === `${browseData.path}/${folder}` &&
@@ -511,8 +523,12 @@ function FolderBrowserDialog({
 
 function ConnectScreen({
   onConnect,
+  modelId,
+  onModelChange,
 }: {
   onConnect: (path: string, info: ProjectInfo) => void
+  modelId: string
+  onModelChange: (id: string) => void
 }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -644,8 +660,8 @@ function ConnectScreen({
               <Plus className="h-4 w-4" />
             </button>
             <ModelSelector
-              value="claude-sonnet-4-20250514"
-              onChange={() => {}}
+              value={modelId}
+              onChange={onModelChange}
             />
             <div className="ml-auto">
               <button
@@ -675,166 +691,20 @@ function ConnectScreen({
   )
 }
 
-// ── Terminal panel ────────────────────────────────────────
-
-type TerminalLine = {
-  type: "input" | "stdout" | "stderr"
-  text: string
-}
-
-function TerminalPanel({ cwd, onClose }: { cwd: string; onClose: () => void }) {
-  const [lines, setLines] = useState<TerminalLine[]>([])
-  const [cmd, setCmd] = useState("")
-  const [running, setRunning] = useState(false)
-  const [history, setHistory] = useState<string[]>([])
-  const [histIdx, setHistIdx] = useState(-1)
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight)
-  }, [lines])
-
-  useEffect(() => {
-    inputRef.current?.focus()
-  }, [])
-
-  const run = async (command: string) => {
-    if (!command.trim()) return
-    setRunning(true)
-    setHistory((h) => [command, ...h.slice(0, 50)])
-    setHistIdx(-1)
-    setLines((prev) => [...prev, { type: "input", text: command }])
-    setCmd("")
-
-    try {
-      // Handle cd locally
-      if (command.trim().startsWith("clear")) {
-        setLines([])
-        setRunning(false)
-        return
-      }
-
-      const res = await fetch("/api/agent/terminal", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ command, cwd }),
-      })
-      const data = await res.json()
-
-      const newLines: TerminalLine[] = []
-      if (data.stdout) newLines.push({ type: "stdout", text: data.stdout })
-      if (data.stderr) newLines.push({ type: "stderr", text: data.stderr })
-      if (newLines.length === 0 && data.exitCode !== 0) {
-        newLines.push({ type: "stderr", text: `Exit code: ${data.exitCode}` })
-      }
-      setLines((prev) => [...prev, ...newLines])
-    } catch {
-      setLines((prev) => [
-        ...prev,
-        { type: "stderr", text: "Failed to execute command" },
-      ])
-    }
-    setRunning(false)
-    inputRef.current?.focus()
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault()
-      run(cmd)
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault()
-      if (history.length > 0) {
-        const next = Math.min(histIdx + 1, history.length - 1)
-        setHistIdx(next)
-        setCmd(history[next])
-      }
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault()
-      if (histIdx > 0) {
-        const next = histIdx - 1
-        setHistIdx(next)
-        setCmd(history[next])
-      } else {
-        setHistIdx(-1)
-        setCmd("")
-      }
-    }
-  }
-
-  const dirName = cwd.split("/").pop() || cwd
-
-  return (
-    <div className="flex flex-col border-t bg-background">
-      {/* Terminal header */}
-      <div className="flex h-9 items-center gap-2 border-b bg-muted/30 px-3">
-        <SquareTerminal className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-xs font-medium text-muted-foreground">
-          Terminal
-        </span>
-        <code className="text-[10px] text-muted-foreground/60">{dirName}</code>
-        <div className="ml-auto flex items-center gap-1">
-          <button
-            onClick={onClose}
-            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
-
-      {/* Terminal output */}
-      <div
-        ref={scrollRef}
-        onClick={() => inputRef.current?.focus()}
-        className="h-48 overflow-y-auto bg-background p-3 font-mono text-xs"
-      >
-        {lines.map((line, i) => (
-          <div key={i} className="whitespace-pre-wrap">
-            {line.type === "input" ? (
-              <span>
-                <span className="text-primary">$</span>{" "}
-                <span className="text-foreground">{line.text}</span>
-              </span>
-            ) : line.type === "stderr" ? (
-              <span className="text-destructive">{line.text}</span>
-            ) : (
-              <span className="text-foreground/80">{line.text}</span>
-            )}
-          </div>
-        ))}
-
-        {/* Input line */}
-        <div className="flex items-center gap-1">
-          <span className="text-primary">$</span>
-          <input
-            ref={inputRef}
-            value={cmd}
-            onChange={(e) => setCmd(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={running}
-            className="flex-1 bg-transparent text-foreground caret-primary focus:outline-none disabled:opacity-50"
-            spellCheck={false}
-            autoComplete="off"
-          />
-          {running && (
-            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ── Main Agent Panel ─────────────────────────────────────
 
 export function AgentPanel() {
   const [projectPath, setProjectPath] = useState<string | null>(null)
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null)
   const [input, setInput] = useState("")
-  const [modelId, setModelId] = useState("claude-sonnet-4-20250514")
-  const [showTerminal, setShowTerminal] = useState(false)
+  const [modelId, setModelId] = useState("anthropic:sonnet")
+  const [providerApiKeys, setProviderApiKeys] = useState<AgentProviderApiKeys>({})
+  const [gitBranch, setGitBranch] = useState<string | null>(null)
+  const [conversationId, setConversationId] = useState(() =>
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  )
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -842,9 +712,8 @@ export function AgentPanel() {
     () =>
       new DefaultChatTransport({
         api: "/api/agent",
-        body: { projectPath: projectPath || "", modelId },
       }),
-    [projectPath, modelId]
+    []
   )
 
   const { messages, sendMessage, status, setMessages } = useChat({ transport })
@@ -862,15 +731,79 @@ export function AgentPanel() {
     if (projectPath) inputRef.current?.focus()
   }, [projectPath])
 
+  useEffect(() => {
+    if (!projectPath) {
+      setGitBranch(null)
+      return
+    }
+
+    let disposed = false
+
+    const loadBranch = async () => {
+      try {
+        const res = await fetch("/api/agent/git-branch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cwd: projectPath }),
+        })
+        const data = (await res.json()) as { branch: string | null; isGit: boolean }
+        if (!disposed) {
+          setGitBranch(data.isGit ? data.branch : null)
+        }
+      } catch {
+        if (!disposed) setGitBranch(null)
+      }
+    }
+
+    loadBranch()
+    const interval = window.setInterval(loadBranch, 5000)
+    return () => {
+      disposed = true
+      window.clearInterval(interval)
+    }
+  }, [projectPath])
+
+  useEffect(() => {
+    const updateSettings = () => {
+      setProviderApiKeys(readAgentSettings().providerApiKeys)
+    }
+    updateSettings()
+    window.addEventListener("staged-agent-settings-updated", updateSettings)
+    window.addEventListener("storage", updateSettings)
+    return () => {
+      window.removeEventListener("staged-agent-settings-updated", updateSettings)
+      window.removeEventListener("storage", updateSettings)
+    }
+  }, [])
+
   const handleSend = useCallback(() => {
     if (!input.trim() || isLoading) return
     const text = input
     setInput("")
-    sendMessage({ text })
+    sendMessage(
+      { text },
+      {
+        body: {
+          projectPath: projectPath || "",
+          modelId,
+          conversationId,
+          backend: "auto",
+          providerApiKeys,
+        },
+      }
+    )
     if (inputRef.current) {
       inputRef.current.style.height = "auto"
     }
-  }, [input, isLoading, sendMessage])
+  }, [
+    input,
+    isLoading,
+    sendMessage,
+    projectPath,
+    modelId,
+    conversationId,
+    providerApiKeys,
+  ])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -883,6 +816,11 @@ export function AgentPanel() {
     setProjectPath(null)
     setProjectInfo(null)
     setMessages([])
+    setConversationId(
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    )
   }
 
   // ── Connect screen ──
@@ -893,6 +831,8 @@ export function AgentPanel() {
           setProjectPath(path)
           setProjectInfo(info)
         }}
+        modelId={modelId}
+        onModelChange={setModelId}
       />
     )
   }
@@ -910,8 +850,18 @@ export function AgentPanel() {
           {projectInfo?.name ?? projectPath}
         </code>
         {projectInfo?.isGit && (
-          <div className="flex items-center gap-1 text-muted-foreground">
-            <GitBranch className="h-3 w-3" />
+          <div className="flex items-center gap-1">
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
+              <GitBranch className="h-3 w-3" />
+              <span className="text-[9px] uppercase tracking-wide opacity-80">
+                Branch
+              </span>
+            </span>
+            {gitBranch && (
+              <code className="max-w-[140px] truncate rounded-full border border-border bg-muted px-2 py-0.5 text-[10px]">
+                {gitBranch}
+              </code>
+            )}
           </div>
         )}
         {projectInfo?.projectType && projectInfo.projectType !== "unknown" && (
@@ -919,19 +869,10 @@ export function AgentPanel() {
             {PROJECT_TYPE_LABELS[projectInfo.projectType]}
           </span>
         )}
+        <span className="rounded border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+          {modelId}
+        </span>
         <div className="ml-auto flex items-center gap-1">
-          <button
-            onClick={() => setShowTerminal(!showTerminal)}
-            className={cn(
-              "flex h-7 w-7 items-center justify-center rounded-md transition-colors",
-              showTerminal
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
-            )}
-            title="Toggle terminal"
-          >
-            <SquareTerminal className="h-3.5 w-3.5" />
-          </button>
           <button
             onClick={handleDisconnect}
             className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -1052,6 +993,30 @@ export function AgentPanel() {
                       />
                     )
                   }
+                  if (part.type === "data-claude_event") {
+                    return (
+                      <ClaudeEventBlock
+                        key={`${message.id}-${i}`}
+                        event={
+                          typeof part.data === "object" && part.data
+                            ? (part.data as Record<string, unknown>)
+                            : { raw: part.data }
+                        }
+                      />
+                    )
+                  }
+                  if (part.type === "error") {
+                    return (
+                      <div
+                        key={`${message.id}-${i}`}
+                        className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 font-sans text-sm text-destructive"
+                      >
+                        {typeof part.errorText === "string"
+                          ? part.errorText
+                          : "Agent error occurred."}
+                      </div>
+                    )
+                  }
                   return null
                 })}
               </div>
@@ -1066,14 +1031,6 @@ export function AgentPanel() {
           )}
         </div>
       </div>
-
-      {/* Terminal */}
-      {showTerminal && projectPath && (
-        <TerminalPanel
-          cwd={projectPath}
-          onClose={() => setShowTerminal(false)}
-        />
-      )}
 
       {/* Input bar — Codex style */}
       <div className="px-4 pb-4">
