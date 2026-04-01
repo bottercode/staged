@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { router, publicProcedure } from "../trpc"
 import { boards, boardColumns, tasks, users } from "../../db/schema"
-import { eq, asc } from "drizzle-orm"
+import { eq, asc, and, ne } from "drizzle-orm"
 
 export const boardRouter = router({
   list: publicProcedure
@@ -15,7 +15,12 @@ export const boardRouter = router({
     }),
 
   getById: publicProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        filterMode: z.enum(["all", "active"]).optional(),
+      })
+    )
     .query(async ({ ctx, input }) => {
       const [board] = await ctx.db
         .select()
@@ -29,6 +34,11 @@ export const boardRouter = router({
         .from(boardColumns)
         .where(eq(boardColumns.boardId, input.id))
         .orderBy(asc(boardColumns.position))
+
+      const doneColumn =
+        input.filterMode === "active"
+          ? columns.find((c) => c.name === "Done")
+          : null
 
       const allTasks = await ctx.db
         .select({
@@ -51,15 +61,24 @@ export const boardRouter = router({
         })
         .from(tasks)
         .leftJoin(users, eq(tasks.assigneeId, users.id))
-        .where(eq(tasks.boardId, input.id))
+        .where(
+          doneColumn
+            ? and(
+                eq(tasks.boardId, input.id),
+                ne(tasks.columnId, doneColumn.id)
+              )
+            : eq(tasks.boardId, input.id)
+        )
         .orderBy(asc(tasks.position))
 
       return {
         ...board,
-        columns: columns.map((col) => ({
-          ...col,
-          tasks: allTasks.filter((t) => t.columnId === col.id),
-        })),
+        columns: columns
+          .filter((c) => (doneColumn ? c.id !== doneColumn.id : true))
+          .map((col) => ({
+            ...col,
+            tasks: allTasks.filter((t) => t.columnId === col.id),
+          })),
       }
     }),
 

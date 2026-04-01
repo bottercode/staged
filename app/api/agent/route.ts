@@ -7,7 +7,14 @@ import { estimateInputUsage, estimateRunCost } from "@/server/agent/cost"
 import { touchSession } from "@/server/agent/sessions"
 
 const CLAUDE_CLI_ALIASES = new Set(["sonnet", "opus", "haiku"])
-const OPENAI_PREFIXES = ["gpt-", "o", "chatgpt-", "deepseek-", "qwen-", "llama-"]
+const OPENAI_PREFIXES = [
+  "gpt-",
+  "o",
+  "chatgpt-",
+  "deepseek-",
+  "qwen-",
+  "llama-",
+]
 const GOOGLE_PREFIXES = ["gemini-"]
 const MISTRAL_PREFIXES = ["mistral-", "codestral"]
 const XAI_PREFIXES = ["grok-"]
@@ -38,10 +45,7 @@ function isCliRunnerModel(modelId?: string) {
     : ""
 
   if (providerPrefix && providerPrefix !== "anthropic") return false
-  return (
-    normalized.startsWith("claude-") ||
-    CLAUDE_CLI_ALIASES.has(normalized)
-  )
+  return normalized.startsWith("claude-") || CLAUDE_CLI_ALIASES.has(normalized)
 }
 
 function getModelWithoutProviderPrefix(modelId?: string) {
@@ -198,11 +202,9 @@ export async function POST(req: Request) {
               modelId: getModelWithoutProviderPrefix(normalizedModelId),
               conversationId: normalizedConversationId,
               permissionMode:
-                permissionMode === "manualEdits" ||
-                permissionMode === "bypassPermissions" ||
-                permissionMode === "plan"
+                permissionMode === "edit" || permissionMode === "plan"
                   ? permissionMode
-                  : "bypassPermissions",
+                  : "edit",
             },
             {
               onTextDelta: (delta) => {
@@ -228,10 +230,14 @@ export async function POST(req: Request) {
                 })
               },
               onToolInput: (toolCallId, toolName, input) => {
-                void logConversationEvent(normalizedConversationId, "tool_input", {
-                  toolCallId,
-                  toolName,
-                })
+                void logConversationEvent(
+                  normalizedConversationId,
+                  "tool_input",
+                  {
+                    toolCallId,
+                    toolName,
+                  }
+                )
                 writer.write({
                   type: "tool-input-available",
                   toolCallId,
@@ -240,9 +246,13 @@ export async function POST(req: Request) {
                 })
               },
               onToolOutput: (toolCallId, output) => {
-                void logConversationEvent(normalizedConversationId, "tool_output", {
-                  toolCallId,
-                })
+                void logConversationEvent(
+                  normalizedConversationId,
+                  "tool_output",
+                  {
+                    toolCallId,
+                  }
+                )
                 writer.write({
                   type: "tool-output-available",
                   toolCallId,
@@ -294,7 +304,11 @@ export async function POST(req: Request) {
           writer.write({ type: "start" })
           const id = randomUUID()
           writer.write({ type: "text-start", id })
-          writer.write({ type: "text-delta", id, delta: `Agent error: ${errorText}` })
+          writer.write({
+            type: "text-delta",
+            id,
+            delta: `Agent error: ${errorText}`,
+          })
           writer.write({ type: "text-end", id })
           writer.write({ type: "finish", finishReason: "error" })
         }
@@ -311,11 +325,9 @@ export async function POST(req: Request) {
       providerApiKeys: keys,
       conversationId: normalizedConversationId,
       permissionMode:
-        permissionMode === "manualEdits" ||
-        permissionMode === "bypassPermissions" ||
-        permissionMode === "plan"
+        permissionMode === "edit" || permissionMode === "plan"
           ? permissionMode
-          : "bypassPermissions",
+          : "edit",
     })
 
     const response = await engine.run(messages)
@@ -333,8 +345,6 @@ export async function POST(req: Request) {
     void logConversationEvent(normalizedConversationId, "turn_error", {
       error: error instanceof Error ? error.message : "Unknown error",
     })
-    return errorStream(
-      error instanceof Error ? error.message : "Unknown error"
-    )
+    return errorStream(error instanceof Error ? error.message : "Unknown error")
   }
 }

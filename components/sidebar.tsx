@@ -476,7 +476,7 @@ function DocsSidebar({
                 <span className="flex-shrink-0 text-sm">
                   {doc.emoji || "📄"}
                 </span>
-                <span className="truncate">{doc.title || "Untitled"}</span>
+                <span className="min-w-0 truncate">{doc.title || "Untitled"}</span>
               </button>
             )
           })}

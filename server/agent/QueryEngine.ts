@@ -31,7 +31,7 @@ export type QueryEngineConfig = {
   providerApiKeys?: ProviderApiKeys
   maxSteps?: number
   conversationId?: string
-  permissionMode?: "manualEdits" | "bypassPermissions" | "plan"
+  permissionMode?: "edit" | "plan"
 }
 
 export class QueryEngine {

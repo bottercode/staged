@@ -102,7 +102,7 @@ type AgentRunInput = {
   projectPath: string
   modelId?: string
   conversationId?: string
-  permissionMode?: "manualEdits" | "bypassPermissions" | "plan"
+  permissionMode?: "edit" | "plan"
 }
 
 type AgentRunCallbacks = {
@@ -227,10 +227,7 @@ function isStructuredOutputError(stderr: string) {
 }
 
 function compactPromptForRetry(prompt: string, level: "snip" | "reactive") {
-  const max =
-    level === "snip"
-      ? 10_000
-      : 6_500
+  const max = level === "snip" ? 10_000 : 6_500
   if (prompt.length <= max) return prompt
   const head = Math.floor(max * 0.35)
   const tail = max - head
@@ -263,11 +260,7 @@ async function runAgentStreamOnce(
   }
 
   const cliPermissionMode =
-    permissionMode === "manualEdits"
-      ? "acceptEdits"
-      : permissionMode === "plan"
-        ? "plan"
-        : "bypassPermissions"
+    permissionMode === "plan" ? "plan" : "bypassPermissions"
 
   const args = [
     "-p",
@@ -516,9 +509,7 @@ export async function runAgentStream(
     }
 
     const fallbackRetry =
-      result.isError &&
-      result.emittedTextLength === 0 &&
-      attempt < maxAttempts
+      result.isError && result.emittedTextLength === 0 && attempt < maxAttempts
     if (fallbackRetry) {
       const fallback = resolveFallbackModelId(currentModelId)
       if (fallback && fallback !== currentModelId) {

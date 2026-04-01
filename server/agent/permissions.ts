@@ -1,4 +1,4 @@
-export type PermissionMode = "manualEdits" | "bypassPermissions" | "plan"
+export type PermissionMode = "edit" | "plan"
 
 export type PermissionDecision = {
   allowed: boolean

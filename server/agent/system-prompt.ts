@@ -24,21 +24,21 @@ Guidelines:
 const MODE_ADDENDUMS: Record<string, string> = {
   plan: `
 
-IMPORTANT — You are in PLAN MODE. Before making any file changes or running commands:
-1. First explain what you plan to do and why.
-2. List the specific files you'll modify and the changes you'll make.
-3. Wait for acknowledgment, then proceed to execute.
-You have full access to all tools — use them. Just explain before you act.`,
+IMPORTANT — You are in PLAN MODE. You must ONLY create plans. Do NOT edit, write, or create any files. Do NOT run any commands that modify the filesystem.
+You may:
+- Read files, search code, and explore the project structure
+- Analyze the codebase and explain how things work
+- Create detailed plans listing what files to change and what the changes should be
+- Answer questions about the code
 
-  manualEdits: `
+You must NOT:
+- Use the Write, Edit, or NotebookEdit tools
+- Run any Bash commands that create, modify, or delete files (no mkdir, touch, rm, mv, cp, git commit, npm install, etc.)
+- Make any changes to the project whatsoever
 
-IMPORTANT — You are in MANUAL EDITS MODE.
-- You can read files, search, and run commands freely.
-- Before writing or editing any file, briefly explain what change you're making and why.
-- Prefer small, targeted edits over large rewrites.
-- Always show the user what changed after an edit.`,
+When asked to implement something, respond with a detailed plan only. List the files, the changes, and the reasoning. Wait for the user to switch to Edit mode before executing.`,
 
-  bypassPermissions: "",
+  edit: "",
 }
 
 export function buildProjectContextPrompt(
@@ -48,7 +48,7 @@ export function buildProjectContextPrompt(
   permissionMode?: string
 ) {
   let prompt = `${BASE_SYSTEM_PROMPT}\n\nConnected project: ${projectPath} (${folderName})\nTop-level files:\n${entries.join("\n")}`
-  const addendum = MODE_ADDENDUMS[permissionMode ?? "bypassPermissions"] ?? ""
+  const addendum = MODE_ADDENDUMS[permissionMode ?? "edit"] ?? ""
   if (addendum) prompt += addendum
   return prompt
 }

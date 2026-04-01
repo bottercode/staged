@@ -12,12 +12,12 @@ export const AGENT_SETTINGS_STORAGE_KEY = "staged-agent-settings-v1"
 
 export type AgentSettings = {
   providerApiKeys: AgentProviderApiKeys
-  permissionMode: "manualEdits" | "bypassPermissions" | "plan"
+  permissionMode: "edit" | "plan"
 }
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   providerApiKeys: {},
-  permissionMode: "manualEdits",
+  permissionMode: "edit",
 }
 
 export function readAgentSettings(): AgentSettings {
@@ -29,11 +29,7 @@ export function readAgentSettings(): AgentSettings {
     const parsed = JSON.parse(raw) as Partial<AgentSettings>
     const rawMode = (parsed as { permissionMode?: string }).permissionMode
     const mappedMode =
-      rawMode === "acceptEdits" || rawMode === "default"
-        ? "manualEdits"
-        : rawMode === "bypassPermissions" || rawMode === "plan" || rawMode === "manualEdits"
-          ? rawMode
-          : DEFAULT_AGENT_SETTINGS.permissionMode
+      rawMode === "edit" || rawMode === "plan" ? rawMode : "edit"
 
     return {
       providerApiKeys: {

@@ -853,9 +853,7 @@ export function AgentPanel() {
   const [providerApiKeys, setProviderApiKeys] = useState<AgentProviderApiKeys>(
     {}
   )
-  const [permissionMode, setPermissionMode] = useState<
-    "manualEdits" | "bypassPermissions" | "plan"
-  >("manualEdits")
+  const [permissionMode, setPermissionMode] = useState<"edit" | "plan">("edit")
   const [gitBranch, setGitBranch] = useState<string | null>(null)
   const [runtimeStatus, setRuntimeStatus] = useState<string | null>(null)
   const [estimatedCostUsd, setEstimatedCostUsd] = useState<number | null>(null)
@@ -897,7 +895,7 @@ export function AgentPanel() {
     [activeConversationId]
   )
 
-  const { messages, sendMessage, status, setMessages } = useChat({
+  const { messages, sendMessage, stop, status, setMessages } = useChat({
     id: activeConversationId || undefined,
     transport,
   })
@@ -1345,18 +1343,15 @@ export function AgentPanel() {
     permissionMode,
   ])
 
-  const handleAbort = useCallback(async () => {
+  const handleAbort = useCallback(() => {
+    stop()
     if (!activeConversationId) return
-    try {
-      await fetch("/api/agent/abort", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId: activeConversationId }),
-      })
-    } catch {
-      // ignore network failures; UI stream will eventually settle
-    }
-  }, [activeConversationId])
+    fetch("/api/agent/abort", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversationId: activeConversationId }),
+    }).catch(() => {})
+  }, [activeConversationId, stop])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -1745,10 +1740,7 @@ export function AgentPanel() {
             <select
               value={permissionMode}
               onChange={(event) => {
-                const nextMode = event.target.value as
-                  | "manualEdits"
-                  | "bypassPermissions"
-                  | "plan"
+                const nextMode = event.target.value as "edit" | "plan"
                 setPermissionMode(nextMode)
                 const current = readAgentSettings()
                 writeAgentSettings({
@@ -1760,8 +1752,7 @@ export function AgentPanel() {
               title="Permission mode"
             >
               <option value="plan">Plan</option>
-              <option value="manualEdits">Manual edits</option>
-              <option value="bypassPermissions">Bypass</option>
+              <option value="edit">Edit</option>
             </select>
             <div className="ml-auto">
               <button

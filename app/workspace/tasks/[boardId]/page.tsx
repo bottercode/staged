@@ -12,9 +12,12 @@ type FilterMode = "all" | "active"
 
 export default function BoardPage() {
   const { boardId } = useParams<{ boardId: string }>()
-  const { data: board } = trpc.board.getById.useQuery({ id: boardId })
   const [viewMode, setViewMode] = useState<ViewMode>("board")
   const [filterMode, setFilterMode] = useState<FilterMode>("all")
+  const { data: board } = trpc.board.getById.useQuery({
+    id: boardId,
+    filterMode,
+  })
 
   if (!board) {
     return (
@@ -99,6 +102,7 @@ export default function BoardPage() {
         boardId={board.id}
         workspaceId={board.workspaceId}
         columns={board.columns}
+        filterMode={filterMode}
       />
     </div>
   )

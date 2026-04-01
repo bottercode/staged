@@ -6,7 +6,7 @@ export type ToolUseContext = {
   projectPath: string | null
   resolvePath: (requestedPath: string) => string
   defaultCwd: string
-  permissionMode?: "manualEdits" | "bypassPermissions" | "plan"
+  permissionMode?: "edit" | "plan"
   onPermissionDenied?: (toolName: string, reason: string) => void
 }
 
@@ -52,7 +52,10 @@ export function buildToolset(tools: Tools, context: ToolUseContext) {
             )
             return { error: decision.reason || "Permission denied" }
           }
-          return definition.execute(definition.inputSchema.parse(input), context)
+          return definition.execute(
+            definition.inputSchema.parse(input),
+            context
+          )
         },
       }),
     ])
