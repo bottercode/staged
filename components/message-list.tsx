@@ -1,8 +1,7 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef } from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,7 +9,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { MessageSquare, MoreHorizontal, SquareKanban } from "lucide-react"
-import { cn } from "@/lib/utils"
 
 export type Message = {
   id: string
@@ -48,12 +46,14 @@ export function MessageList({
   messages,
   onOpenThread,
   onCreateTask,
-  currentUserId,
+  currentUserId: _currentUserId,
+  showThreadCount = true,
 }: {
   messages: Message[]
   onOpenThread?: (messageId: string) => void
   onCreateTask?: (message: Message) => void
   currentUserId?: string
+  showThreadCount?: boolean
 }) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const prevLengthRef = useRef(0)
@@ -66,15 +66,15 @@ export function MessageList({
     prevLengthRef.current = messages.length
   }, [messages.length])
 
-  // Group messages by date
-  let lastDate = ""
+  const messagesWithDate = messages.map((msg, index) => {
+    const msgDate = formatDate(msg.createdAt)
+    const prevDate = index > 0 ? formatDate(messages[index - 1].createdAt) : null
+    return { msg, msgDate, showDate: msgDate !== prevDate }
+  })
 
   return (
     <div className="flex flex-1 flex-col overflow-y-auto px-4 py-2">
-      {messages.map((msg) => {
-        const msgDate = formatDate(msg.createdAt)
-        const showDate = msgDate !== lastDate
-        lastDate = msgDate
+      {messagesWithDate.map(({ msg, msgDate, showDate }) => {
 
         return (
           <div key={msg.id}>
@@ -103,11 +103,11 @@ export function MessageList({
                   </span>
                 </div>
                 <p className="text-sm leading-relaxed">{msg.content}</p>
-                {msg.replyCount > 0 && (
+                {showThreadCount && msg.replyCount > 0 && (
                   <span className="mt-1 flex items-center gap-1 text-xs text-primary">
                     <MessageSquare className="h-3 w-3" />
-                    {msg.replyCount}{" "}
-                    {msg.replyCount === 1 ? "reply" : "replies"}
+                    {msg.replyCount + 1}{" "}
+                    {msg.replyCount + 1 === 1 ? "comment" : "comments"}
                   </span>
                 )}
               </div>

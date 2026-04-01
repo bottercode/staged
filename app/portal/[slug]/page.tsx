@@ -12,7 +12,7 @@ import {
   Send,
   ChevronDown,
   ChevronRight,
-  Mail,
+
 } from "lucide-react"
 import { trpc } from "@/lib/trpc/client"
 import { Button } from "@/components/ui/button"

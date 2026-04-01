@@ -1,13 +1,13 @@
 "use client"
 
 import { redirect } from "next/navigation"
+import { skipToken } from "@tanstack/react-query"
 import { trpc } from "@/lib/trpc/client"
 
 export default function WorkspacePage() {
   const { data: workspace } = trpc.workspace.getDefault.useQuery()
   const { data: channels } = trpc.channel.list.useQuery(
-    { workspaceId: workspace?.id! },
-    { enabled: !!workspace }
+    workspace ? { workspaceId: workspace.id } : skipToken
   )
 
   if (channels && channels.length > 0) {

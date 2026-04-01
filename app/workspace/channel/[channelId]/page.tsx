@@ -19,6 +19,7 @@ export default function ChannelPage() {
 
   const { data: workspace } = trpc.workspace.getDefault.useQuery()
   const { data: channel } = trpc.channel.getById.useQuery({ id: channelId })
+  const { data: users } = trpc.user.list.useQuery()
   const { data: messages } = trpc.message.list.useQuery(
     { channelId },
     { refetchInterval: 3000 }
@@ -65,6 +66,11 @@ export default function ChannelPage() {
         {/* Input */}
         <MessageInput
           placeholder={`Message #${channel?.name ?? "channel"}...`}
+          mentionUsers={
+            (users ?? [])
+              .filter((u) => u.id !== currentUser?.id)
+              .map((u) => ({ id: u.id, name: u.name }))
+          }
           onSend={(content) => {
             if (!currentUser) return
             sendMessage.mutate({

@@ -1,7 +1,10 @@
 import { randomUUID } from "crypto"
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai"
 import { QueryEngine } from "@/server/agent/QueryEngine"
-import { runClaudeCodeStream } from "@/server/agent/claude-cli"
+import { runAgentStream } from "@/server/agent/agent-runner"
+import { logConversationEvent } from "@/server/agent/history"
+import { estimateInputUsage, estimateRunCost } from "@/server/agent/cost"
+import { touchSession } from "@/server/agent/sessions"
 
 const CLAUDE_CLI_ALIASES = new Set(["sonnet", "opus", "haiku"])
 const OPENAI_PREFIXES = ["gpt-", "o", "chatgpt-", "deepseek-", "qwen-", "llama-"]
@@ -25,7 +28,7 @@ function normalizeModelId(modelId: unknown): string | undefined {
   return normalized || undefined
 }
 
-function isClaudeCliModel(modelId?: string) {
+function isCliRunnerModel(modelId?: string) {
   if (!modelId) return true
   const normalized = modelId.includes(":")
     ? modelId.split(":").slice(1).join(":").trim()
@@ -48,8 +51,8 @@ function getModelWithoutProviderPrefix(modelId?: string) {
     : modelId
 }
 
-function resolveProvider(modelId?: string): ProviderName {
-  if (!modelId) return "anthropic"
+function resolveProvider(modelId?: string): ProviderName | null {
+  if (!modelId) return null
 
   if (modelId.includes(":")) {
     const [provider] = modelId.split(":")
@@ -82,7 +85,7 @@ function resolveProvider(modelId?: string): ProviderName {
     return "xai"
   }
 
-  return "anthropic"
+  return null
 }
 
 function hasApiKey(provider: ProviderName, keys?: ProviderApiKeys) {
@@ -127,25 +130,51 @@ export async function POST(req: Request) {
     projectPath,
     modelId,
     conversationId,
+    permissionMode,
     backend,
     providerApiKeys,
   } = await req.json()
+  const normalizedConversationId =
+    typeof conversationId === "string" && conversationId.trim()
+      ? conversationId.trim()
+      : randomUUID()
   const normalizedModelId = normalizeModelId(modelId)
   const resolvedProvider = resolveProvider(normalizedModelId)
   const keys = (providerApiKeys || {}) as ProviderApiKeys
+
+  if (!normalizedModelId) {
+    return errorStream(
+      "No model selected. Please choose a model in the input bar before sending."
+    )
+  }
+
+  if (!resolvedProvider) {
+    return errorStream(
+      `Unknown model format "${normalizedModelId}". Use provider:model (example: google:gemini-2.5-flash).`
+    )
+  }
 
   if (!hasApiKey(resolvedProvider, keys)) {
     return errorStream(apiKeyError(resolvedProvider))
   }
 
-  const selectedBackend = (backend ?? "auto") as string
+  void logConversationEvent(normalizedConversationId, "turn_start", {
+    modelId: normalizedModelId,
+    provider: resolvedProvider,
+    backend: backend ?? "auto",
+    projectPath: typeof projectPath === "string" ? projectPath : null,
+  })
+  void touchSession(normalizedConversationId)
 
-  const shouldUseClaudeCli =
+  const selectedBackend = (backend ?? "auto") as string
+  const inputUsage = estimateInputUsage((messages || []) as unknown[])
+
+  const shouldUseCliRunner =
     Boolean(projectPath) &&
     (selectedBackend === "auto" || selectedBackend === "claude-code") &&
-    isClaudeCliModel(normalizedModelId)
+    isCliRunnerModel(normalizedModelId)
 
-  if (shouldUseClaudeCli && projectPath) {
+  if (shouldUseCliRunner && projectPath) {
     const stream = createUIMessageStream({
       execute: async ({ writer }) => {
         try {
@@ -162,12 +191,18 @@ export async function POST(req: Request) {
 
           writer.write({ type: "start" })
 
-          const result = await runClaudeCodeStream(
+          const result = await runAgentStream(
             {
               messages,
               projectPath,
               modelId: getModelWithoutProviderPrefix(normalizedModelId),
-              conversationId,
+              conversationId: normalizedConversationId,
+              permissionMode:
+                permissionMode === "manualEdits" ||
+                permissionMode === "bypassPermissions" ||
+                permissionMode === "plan"
+                  ? permissionMode
+                  : "bypassPermissions",
             },
             {
               onTextDelta: (delta) => {
@@ -175,7 +210,28 @@ export async function POST(req: Request) {
                 emittedText += delta
                 writer.write({ type: "text-delta", id, delta })
               },
+              onThinkingDelta: (delta) => {
+                writer.write({
+                  type: "data-agent_thinking",
+                  data: { delta },
+                  transient: true,
+                })
+              },
+              onStatus: (status) => {
+                void logConversationEvent(normalizedConversationId, "status", {
+                  status,
+                })
+                writer.write({
+                  type: "data-agent_status",
+                  data: { status },
+                  transient: true,
+                })
+              },
               onToolInput: (toolCallId, toolName, input) => {
+                void logConversationEvent(normalizedConversationId, "tool_input", {
+                  toolCallId,
+                  toolName,
+                })
                 writer.write({
                   type: "tool-input-available",
                   toolCallId,
@@ -184,6 +240,9 @@ export async function POST(req: Request) {
                 })
               },
               onToolOutput: (toolCallId, output) => {
+                void logConversationEvent(normalizedConversationId, "tool_output", {
+                  toolCallId,
+                })
                 writer.write({
                   type: "tool-output-available",
                   toolCallId,
@@ -192,7 +251,7 @@ export async function POST(req: Request) {
               },
               onRawEvent: (event) => {
                 writer.write({
-                  type: "data-claude_event",
+                  type: "data-agent_event",
                   data: event,
                   transient: true,
                 })
@@ -205,6 +264,19 @@ export async function POST(req: Request) {
             writer.write({ type: "text-delta", id, delta: result.finalText })
           }
 
+          void logConversationEvent(normalizedConversationId, "turn_finish", {
+            isError: result.isError,
+            retryCount: result.retryCount,
+            emittedTextLength: emittedText.length || result.emittedTextLength,
+            usage: estimateRunCost({
+              provider: resolvedProvider,
+              inputTokens: inputUsage.inputTokens,
+              outputTokens: Math.ceil(
+                (emittedText.length || result.emittedTextLength || 0) / 4
+              ),
+            }),
+          })
+
           if (textId) {
             writer.write({ type: "text-end", id: textId })
           }
@@ -216,6 +288,9 @@ export async function POST(req: Request) {
         } catch (error) {
           const errorText =
             error instanceof Error ? error.message : "Unknown error"
+          void logConversationEvent(normalizedConversationId, "turn_error", {
+            errorText,
+          })
           writer.write({ type: "start" })
           const id = randomUUID()
           writer.write({ type: "text-start", id })
@@ -234,10 +309,30 @@ export async function POST(req: Request) {
       projectPath: projectPath || null,
       modelId: normalizedModelId,
       providerApiKeys: keys,
+      conversationId: normalizedConversationId,
+      permissionMode:
+        permissionMode === "manualEdits" ||
+        permissionMode === "bypassPermissions" ||
+        permissionMode === "plan"
+          ? permissionMode
+          : "bypassPermissions",
     })
 
-    return await engine.run(messages)
+    const response = await engine.run(messages)
+    void logConversationEvent(normalizedConversationId, "turn_finish", {
+      isError: false,
+      backend: "query_engine",
+      usage: estimateRunCost({
+        provider: resolvedProvider,
+        inputTokens: inputUsage.inputTokens,
+        outputTokens: 0,
+      }),
+    })
+    return response
   } catch (error) {
+    void logConversationEvent(normalizedConversationId, "turn_error", {
+      error: error instanceof Error ? error.message : "Unknown error",
+    })
     return errorStream(
       error instanceof Error ? error.message : "Unknown error"
     )

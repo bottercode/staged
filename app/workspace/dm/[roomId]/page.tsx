@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useParams } from "next/navigation"
-import { MessageSquare } from "lucide-react"
+import { skipToken } from "@tanstack/react-query"
 import { trpc } from "@/lib/trpc/client"
 import { useCurrentUser } from "@/lib/user-context"
 import { MessageList, type Message } from "@/components/message-list"
@@ -17,9 +17,11 @@ export default function DmPage() {
   const utils = trpc.useUtils()
 
   const { data: workspace } = trpc.workspace.getDefault.useQuery()
+  const { data: users } = trpc.user.list.useQuery()
   const { data: dmRooms } = trpc.dm.list.useQuery(
-    { workspaceId: workspace?.id!, userId: currentUser?.id! },
-    { enabled: !!workspace && !!currentUser }
+    workspace && currentUser
+      ? { workspaceId: workspace.id, userId: currentUser.id }
+      : skipToken
   )
 
   const { data: messages } = trpc.dm.messages.useQuery(
@@ -62,6 +64,11 @@ export default function DmPage() {
       {/* Input */}
       <MessageInput
         placeholder={`Message ${otherUser?.name ?? "..."}...`}
+        mentionUsers={
+          (users ?? [])
+            .filter((u) => u.id !== currentUser?.id)
+            .map((u) => ({ id: u.id, name: u.name }))
+        }
         onSend={(content) => {
           if (!currentUser) return
           sendMessage.mutate({

@@ -21,6 +21,11 @@ export type ProviderApiKeys = {
 
 type ProviderName = "anthropic" | "openai" | "google" | "mistral" | "xai"
 
+const OPENAI_PREFIXES = ["gpt-", "o", "chatgpt-", "deepseek-", "qwen-", "llama-"]
+const GOOGLE_PREFIXES = ["gemini-"]
+const MISTRAL_PREFIXES = ["mistral-", "codestral"]
+const XAI_PREFIXES = ["grok-"]
+
 function parseModelSelection(modelId?: string): {
   provider?: ProviderName
   model: string
@@ -45,6 +50,43 @@ function parseModelSelection(modelId?: string): {
   return { model: resolvedModel }
 }
 
+export function inferProviderFromModel(model: string): ProviderName | null {
+  if (model.startsWith("claude-")) return "anthropic"
+  if (OPENAI_PREFIXES.some((prefix) => model.startsWith(prefix))) return "openai"
+  if (GOOGLE_PREFIXES.some((prefix) => model.startsWith(prefix))) return "google"
+  if (MISTRAL_PREFIXES.some((prefix) => model.startsWith(prefix))) return "mistral"
+  if (XAI_PREFIXES.some((prefix) => model.startsWith(prefix))) return "xai"
+  return null
+}
+
+export function resolveProviderFromModelId(modelId?: string): ProviderName | null {
+  const selection = parseModelSelection(modelId)
+  return selection.provider ?? inferProviderFromModel(selection.model)
+}
+
+export function resolveFallbackModelId(modelId?: string) {
+  const selection = parseModelSelection(modelId)
+  const model = selection.model
+  const provider = selection.provider ?? inferProviderFromModel(model)
+  if (!provider) return undefined
+
+  if (provider === "anthropic") {
+    if (model.includes("opus")) return "anthropic:claude-sonnet-4-20250514"
+    return "anthropic:claude-haiku-4-20250414"
+  }
+  if (provider === "openai") {
+    if (model.startsWith("gpt-4") || model === "o3") return "openai:gpt-4o-mini"
+    return "openai:gpt-4.1-mini"
+  }
+  if (provider === "google") {
+    return "google:gemini-2.5-flash"
+  }
+  if (provider === "mistral") {
+    return "mistral:mistral-small-latest"
+  }
+  return "xai:grok-3-mini"
+}
+
 function getProviders(keys?: ProviderApiKeys) {
   return {
     anthropic: keys?.anthropicApiKey
@@ -66,37 +108,19 @@ function getProviders(keys?: ProviderApiKeys) {
 export function getModel(modelId?: string, keys?: ProviderApiKeys) {
   const selection = parseModelSelection(modelId)
   const resolvedModel = selection.model
+  const resolvedProvider =
+    selection.provider ?? inferProviderFromModel(resolvedModel)
   const providers = getProviders(keys)
 
-  if (selection.provider === "anthropic") return providers.anthropic(resolvedModel)
-  if (selection.provider === "openai") return providers.openai(resolvedModel)
-  if (selection.provider === "google") return providers.google(resolvedModel)
-  if (selection.provider === "mistral") return providers.mistral(resolvedModel)
-  if (selection.provider === "xai") return providers.xai(resolvedModel)
-
-  if (resolvedModel.startsWith("claude-")) return providers.anthropic(resolvedModel)
-
-  if (
-    resolvedModel.startsWith("gpt-") ||
-    resolvedModel.startsWith("o") ||
-    resolvedModel.startsWith("chatgpt-") ||
-    resolvedModel.startsWith("deepseek-") ||
-    resolvedModel.startsWith("qwen-") ||
-    resolvedModel.startsWith("llama-")
-  ) {
-    return providers.openai(resolvedModel)
+  if (!resolvedProvider) {
+    throw new Error(
+      `Unknown model "${resolvedModel}". Use provider:model, for example "google:gemini-2.5-flash".`
+    )
   }
 
-  if (resolvedModel.startsWith("gemini-")) return providers.google(resolvedModel)
-
-  if (
-    resolvedModel.startsWith("mistral-") ||
-    resolvedModel.startsWith("codestral")
-  ) {
-    return providers.mistral(resolvedModel)
-  }
-
-  if (resolvedModel.startsWith("grok-")) return providers.xai(resolvedModel)
-
-  return providers.anthropic(DEFAULT_MODEL_ID)
+  if (resolvedProvider === "anthropic") return providers.anthropic(resolvedModel)
+  if (resolvedProvider === "openai") return providers.openai(resolvedModel)
+  if (resolvedProvider === "google") return providers.google(resolvedModel)
+  if (resolvedProvider === "mistral") return providers.mistral(resolvedModel)
+  return providers.xai(resolvedModel)
 }

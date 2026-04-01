@@ -1,16 +1,14 @@
 "use client"
 
+import { SessionTabs, type Session } from "./session-tabs"
 import { useChat } from "@ai-sdk/react"
-import { DefaultChatTransport } from "ai"
+import { type UIMessage } from "ai"
 import { useState, useRef, useEffect, useMemo, useCallback } from "react"
 import {
-  Send,
-  Bot,
   Loader2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ChevronUp,
   FileCode,
   Terminal as TerminalIcon,
   Search,
@@ -19,17 +17,28 @@ import {
   X,
   GitBranch,
   ArrowRight,
-  Clock,
   Sparkles,
   Zap,
   FileText,
   Code2,
   Plus,
-  Minus,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { readAgentSettings, type AgentProviderApiKeys } from "@/lib/agent-settings"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { BridgeTransport } from "@/lib/agent/transport"
+import {
+  readAgentSettings,
+  writeAgentSettings,
+  type AgentProviderApiKeys,
+} from "@/lib/agent-settings"
 
 // ── Types ────────────────────────────────────────────────
 
@@ -42,6 +51,47 @@ type ProjectInfo = {
   isGit: boolean
   files: string[]
   error?: string
+}
+
+type AgentSession = Session & {
+  conversationId: string
+  messages: UIMessage[]
+  tag?: string | null
+}
+
+type AgentMessagePart = {
+  type?: string
+  text?: string
+  toolCallId?: string
+  input?: unknown
+  output?: unknown
+  state?: string
+  toolInvocation?: {
+    toolName?: string
+    args?: unknown
+    input?: unknown
+    result?: unknown
+    output?: unknown
+    state?: string
+  }
+  data?: unknown
+  errorText?: string
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+let fallbackSessionIdCounter = 0
+function createClientId() {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return crypto.randomUUID()
+  }
+  fallbackSessionIdCounter += 1
+  return `session-${fallbackSessionIdCounter}`
 }
 
 // ── Tool display helpers ─────────────────────────────────
@@ -79,7 +129,10 @@ const PROJECT_TYPE_LABELS: Record<string, string> = {
   unknown: "Project",
 }
 
-function getToolSummary(toolName: string, input: any): string {
+function getToolSummary(
+  toolName: string,
+  input: Record<string, unknown>
+): string {
   if (!input) return ""
   switch (toolName) {
     case "Read":
@@ -115,8 +168,8 @@ function ToolCallBlock({
   state,
 }: {
   toolName: string
-  input: any
-  output: any
+  input: unknown
+  output: unknown
   state: string
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -127,7 +180,10 @@ function ToolCallBlock({
     state === "input-available"
   const hasError = output && typeof output === "object" && "error" in output
 
-  const summary = getToolSummary(toolName, input)
+  const summary =
+    input && typeof input === "object"
+      ? getToolSummary(toolName, input as Record<string, unknown>)
+      : ""
 
   return (
     <div className="my-1 font-mono text-xs">
@@ -162,7 +218,7 @@ function ToolCallBlock({
 
       {expanded && (
         <div className="mt-1 ml-5 space-y-1.5 border-l-2 border-border pb-1 pl-3">
-          {input && (
+          {input != null && (
             <pre className="max-h-48 overflow-auto rounded bg-muted p-2 text-[11px] break-all whitespace-pre-wrap text-muted-foreground">
               {JSON.stringify(input, null, 2)}
             </pre>
@@ -187,7 +243,7 @@ function ToolCallBlock({
   )
 }
 
-function ClaudeEventBlock({ event }: { event: Record<string, unknown> }) {
+function AgentEventBlock({ event }: { event: Record<string, unknown> }) {
   const type = typeof event.type === "string" ? event.type : "event"
   const subtype = typeof event.subtype === "string" ? event.subtype : ""
   const label = subtype ? `${type}.${subtype}` : type
@@ -196,13 +252,34 @@ function ClaudeEventBlock({ event }: { event: Record<string, unknown> }) {
     <div className="my-1 font-mono text-xs">
       <details className="rounded border bg-muted/30 px-2 py-1">
         <summary className="cursor-pointer text-muted-foreground">
-          Claude: {label}
+          Agent: {label}
         </summary>
         <pre className="mt-2 max-h-48 overflow-auto rounded bg-muted p-2 text-[11px] break-all whitespace-pre-wrap text-muted-foreground">
           {JSON.stringify(event, null, 2)}
         </pre>
       </details>
     </div>
+  )
+}
+
+function AgentStatusBlock({ status }: { status: string }) {
+  return (
+    <div className="my-1 pl-1 font-mono text-[11px] text-muted-foreground">
+      Agent status: {status}
+    </div>
+  )
+}
+
+function AgentThinkingBlock({ text }: { text: string }) {
+  return (
+    <details className="my-1 rounded border border-border/60 bg-muted/20 px-2 py-1">
+      <summary className="cursor-pointer text-[11px] text-muted-foreground">
+        Agent reasoning
+      </summary>
+      <div className="mt-2 font-mono text-[11px] whitespace-pre-wrap text-muted-foreground">
+        {text}
+      </div>
+    </details>
   )
 }
 
@@ -230,15 +307,67 @@ function removeRecentFolder(path: string) {
   localStorage.setItem(RECENT_KEY, JSON.stringify(recent))
 }
 
+const AGENT_STATE_KEY = "staged-agent-state-v1"
+
+type PersistedAgentSession = Session & {
+  conversationId: string
+  messages: UIMessage[]
+}
+
+type PersistedAgentState = {
+  projectPath: string | null
+  projectInfo: ProjectInfo | null
+  modelId: string
+  sessions: PersistedAgentSession[]
+  currentSessionId: string
+}
+
+function readPersistedAgentState(): PersistedAgentState | null {
+  if (typeof window === "undefined") return null
+
+  try {
+    const raw = localStorage.getItem(AGENT_STATE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as PersistedAgentState
+    if (
+      !parsed ||
+      !Array.isArray(parsed.sessions) ||
+      !parsed.currentSessionId
+    ) {
+      return null
+    }
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function writePersistedAgentState(state: PersistedAgentState) {
+  if (typeof window === "undefined") return
+  localStorage.setItem(AGENT_STATE_KEY, JSON.stringify(state))
+}
+
 // ── Model list ───────────────────────────────────────────
 
 const MODELS = [
   { id: "anthropic:sonnet", label: "Sonnet (Alias)", provider: "Anthropic" },
   { id: "anthropic:opus", label: "Opus (Alias)", provider: "Anthropic" },
   { id: "anthropic:haiku", label: "Haiku (Alias)", provider: "Anthropic" },
-  { id: "anthropic:claude-sonnet-4-6", label: "Claude Sonnet 4.6", provider: "Anthropic" },
-  { id: "anthropic:claude-opus-4-6", label: "Claude Opus 4.6", provider: "Anthropic" },
-  { id: "anthropic:claude-haiku-4-5", label: "Claude Haiku 4.5", provider: "Anthropic" },
+  {
+    id: "anthropic:claude-sonnet-4-6",
+    label: "Claude Sonnet 4.6",
+    provider: "Anthropic",
+  },
+  {
+    id: "anthropic:claude-opus-4-6",
+    label: "Claude Opus 4.6",
+    provider: "Anthropic",
+  },
+  {
+    id: "anthropic:claude-haiku-4-5",
+    label: "Claude Haiku 4.5",
+    provider: "Anthropic",
+  },
   { id: "openai:gpt-4o", label: "GPT-4o", provider: "OpenAI" },
   { id: "openai:gpt-4o-mini", label: "GPT-4o Mini", provider: "OpenAI" },
   { id: "openai:gpt-4.1", label: "GPT-4.1", provider: "OpenAI" },
@@ -246,9 +375,21 @@ const MODELS = [
   { id: "openai:o3", label: "o3", provider: "OpenAI" },
   { id: "openai:o4-mini", label: "o4-mini", provider: "OpenAI" },
   { id: "google:gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "Google" },
-  { id: "google:gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "Google" },
-  { id: "google:gemini-2.0-flash", label: "Gemini 2.0 Flash", provider: "Google" },
-  { id: "mistral:mistral-large-latest", label: "Mistral Large", provider: "Mistral" },
+  {
+    id: "google:gemini-2.5-flash",
+    label: "Gemini 2.5 Flash",
+    provider: "Google",
+  },
+  {
+    id: "google:gemini-2.0-flash",
+    label: "Gemini 2.0 Flash",
+    provider: "Google",
+  },
+  {
+    id: "mistral:mistral-large-latest",
+    label: "Mistral Large",
+    provider: "Mistral",
+  },
   { id: "mistral:codestral-latest", label: "Codestral", provider: "Mistral" },
   { id: "xai:grok-3", label: "Grok 3", provider: "xAI" },
   { id: "xai:grok-3-mini", label: "Grok 3 Mini", provider: "xAI" },
@@ -399,7 +540,9 @@ function FolderBrowserDialog({
   }, [])
 
   useEffect(() => {
-    if (open && !browseData) browse()
+    if (open && !browseData) {
+      void Promise.resolve().then(() => browse())
+    }
   }, [open, browseData, browse])
 
   if (!open) return null
@@ -534,8 +677,10 @@ function ConnectScreen({
   const [error, setError] = useState<string | null>(null)
   const [recentFolders, setRecentFolders] = useState<string[]>([])
   const [showBrowser, setShowBrowser] = useState(false)
+  const [isMounted, setIsMounted] = useState(false)
 
   useEffect(() => {
+    setIsMounted(true)
     setRecentFolders(getRecentFolders())
   }, [])
 
@@ -590,7 +735,7 @@ function ConnectScreen({
           {error && <p className="text-xs text-destructive">{error}</p>}
 
           {/* Recent folders as quick-connect chips */}
-          {recentFolders.length > 0 && (
+          {isMounted && recentFolders.length > 0 && (
             <div className="flex flex-wrap justify-center gap-2">
               {recentFolders.map((folder) => {
                 const name = folder.split("/").pop() || folder
@@ -659,10 +804,7 @@ function ConnectScreen({
             >
               <Plus className="h-4 w-4" />
             </button>
-            <ModelSelector
-              value={modelId}
-              onChange={onModelChange}
-            />
+            <ModelSelector value={modelId} onChange={onModelChange} />
             <div className="ml-auto">
               <button
                 disabled
@@ -694,30 +836,247 @@ function ConnectScreen({
 // ── Main Agent Panel ─────────────────────────────────────
 
 export function AgentPanel() {
+  const createSession = (name: string): AgentSession => ({
+    id: createClientId(),
+    name,
+    conversationId: createClientId(),
+    messages: [],
+    tag: null,
+  })
+  const [initialSession] = useState<AgentSession>(() => createSession("Chat 1"))
+
   const [projectPath, setProjectPath] = useState<string | null>(null)
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null)
   const [input, setInput] = useState("")
+  const [pastedImage, setPastedImage] = useState<string | null>(null)
   const [modelId, setModelId] = useState("anthropic:sonnet")
-  const [providerApiKeys, setProviderApiKeys] = useState<AgentProviderApiKeys>({})
+  const [providerApiKeys, setProviderApiKeys] = useState<AgentProviderApiKeys>(
+    {}
+  )
+  const [permissionMode, setPermissionMode] = useState<
+    "manualEdits" | "bypassPermissions" | "plan"
+  >("manualEdits")
   const [gitBranch, setGitBranch] = useState<string | null>(null)
-  const [conversationId, setConversationId] = useState(() =>
-    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  const [runtimeStatus, setRuntimeStatus] = useState<string | null>(null)
+  const [estimatedCostUsd, setEstimatedCostUsd] = useState<number | null>(null)
+  const [sessionEditDialog, setSessionEditDialog] = useState<{
+    open: boolean
+    mode: "rename" | "tag"
+    sessionId: string | null
+    value: string
+  }>({ open: false, mode: "rename", sessionId: null, value: "" })
+
+  const [sessions, setSessions] = useState<AgentSession[]>(() => [
+    initialSession,
+  ])
+  const [currentSessionId, setCurrentSessionId] = useState<string>(
+    initialSession.id
   )
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const hydratingSessionRef = useRef(false)
+  const hydratedFromStorageRef = useRef(false)
+
+  const activeSession = useMemo(
+    () =>
+      sessions.find((session) => session.id === currentSessionId) ??
+      sessions[0],
+    [sessions, currentSessionId]
+  )
+
+  const activeConversationId = activeSession?.conversationId ?? ""
 
   const transport = useMemo(
     () =>
-      new DefaultChatTransport({
-        api: "/api/agent",
-      }),
-    []
+      activeConversationId
+        ? new BridgeTransport({
+            api: "/api/agent",
+            conversationId: activeConversationId,
+          })
+        : undefined,
+    [activeConversationId]
   )
 
-  const { messages, sendMessage, status, setMessages } = useChat({ transport })
+  const { messages, sendMessage, status, setMessages } = useChat({
+    id: activeConversationId || undefined,
+    transport,
+  })
+
+  useEffect(() => {
+    if (!activeConversationId) {
+      setMessages([])
+    }
+  }, [activeConversationId, setMessages])
   const isLoading = status === "streaming" || status === "submitted"
+
+  // Load session messages when switching tabs
+  useEffect(() => {
+    if (!activeSession) return
+    hydratingSessionRef.current = true
+    setMessages(activeSession.messages)
+    const timeout = window.setTimeout(() => {
+      hydratingSessionRef.current = false
+    }, 0)
+    return () => window.clearTimeout(timeout)
+  }, [activeSession, setMessages])
+
+  // Persist current chat transcript into active session
+  useEffect(() => {
+    if (!activeSession || hydratingSessionRef.current) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSessions((prev) =>
+      prev.map((session) =>
+        session.id === activeSession.id ? { ...session, messages } : session
+      )
+    )
+  }, [messages, activeSession])
+
+  const handleNewSession = () => {
+    const newSession = createSession(`Chat ${sessions.length + 1}`)
+    setSessions((prev) =>
+      prev
+        .map((session) =>
+          session.id === currentSessionId ? { ...session, messages } : session
+        )
+        .concat(newSession)
+    )
+    setCurrentSessionId(newSession.id)
+    setInput("")
+  }
+
+  const handleSessionSelect = (id: string) => {
+    if (id === currentSessionId) return
+    setSessions((prev) =>
+      prev.map((session) =>
+        session.id === currentSessionId ? { ...session, messages } : session
+      )
+    )
+    setCurrentSessionId(id)
+    setInput("")
+  }
+
+  const handleSessionClose = (id: string) => {
+    if (sessions.length <= 1) return
+    const closingCurrent = id === currentSessionId
+    const filtered = sessions.filter((session) => session.id !== id)
+    setSessions(
+      filtered.map((session) =>
+        session.id === currentSessionId ? { ...session, messages } : session
+      )
+    )
+    if (closingCurrent) {
+      setCurrentSessionId(filtered[Math.max(filtered.length - 1, 0)].id)
+    }
+    setInput("")
+  }
+
+  const handleSessionRename = useCallback(
+    (id: string) => {
+      const target = sessions.find((session) => session.id === id)
+      if (!target) return
+      setSessionEditDialog({
+        open: true,
+        mode: "rename",
+        sessionId: id,
+        value: target.name,
+      })
+    },
+    [sessions]
+  )
+
+  const handleSessionTag = useCallback(
+    (id: string) => {
+      const target = sessions.find((session) => session.id === id)
+      if (!target) return
+      setSessionEditDialog({
+        open: true,
+        mode: "tag",
+        sessionId: id,
+        value: target.tag || "",
+      })
+    },
+    [sessions]
+  )
+
+  const handleSessionFork = useCallback(
+    async (id: string) => {
+      const source = sessions.find((session) => session.id === id)
+      if (!source) return
+      const forkName = `${source.name} (fork)`
+      const forkSession: AgentSession = {
+        ...createSession(forkName),
+        messages: source.messages,
+        tag: source.tag || null,
+      }
+
+      setSessions((prev) => prev.concat(forkSession))
+      setCurrentSessionId(forkSession.id)
+
+      try {
+        await fetch("/api/agent/sessions/fork", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sourceConversationId: source.conversationId,
+            targetConversationId: forkSession.conversationId,
+          }),
+        })
+      } catch {
+        // ignore
+      }
+    },
+    [sessions]
+  )
+
+  const handleSessionEditSave = useCallback(async () => {
+    const targetId = sessionEditDialog.sessionId
+    if (!targetId) return
+    const target = sessions.find((session) => session.id === targetId)
+    if (!target) return
+
+    if (sessionEditDialog.mode === "rename") {
+      const trimmed = sessionEditDialog.value.trim()
+      if (!trimmed) return
+      setSessions((prev) =>
+        prev.map((session) =>
+          session.id === targetId ? { ...session, name: trimmed } : session
+        )
+      )
+      try {
+        await fetch("/api/agent/sessions/rename", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversationId: target.conversationId,
+            title: trimmed,
+          }),
+        })
+      } catch {
+        // ignore
+      }
+    } else {
+      const normalized = sessionEditDialog.value.trim() || null
+      setSessions((prev) =>
+        prev.map((session) =>
+          session.id === targetId ? { ...session, tag: normalized } : session
+        )
+      )
+      try {
+        await fetch("/api/agent/sessions/tag", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversationId: target.conversationId,
+            tag: normalized,
+          }),
+        })
+      } catch {
+        // ignore
+      }
+    }
+
+    setSessionEditDialog((prev) => ({ ...prev, open: false }))
+  }, [sessionEditDialog, sessions])
 
   // Auto-scroll
   useEffect(() => {
@@ -733,6 +1092,7 @@ export function AgentPanel() {
 
   useEffect(() => {
     if (!projectPath) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setGitBranch(null)
       return
     }
@@ -746,7 +1106,10 @@ export function AgentPanel() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ cwd: projectPath }),
         })
-        const data = (await res.json()) as { branch: string | null; isGit: boolean }
+        const data = (await res.json()) as {
+          branch: string | null
+          isGit: boolean
+        }
         if (!disposed) {
           setGitBranch(data.isGit ? data.branch : null)
         }
@@ -764,31 +1127,206 @@ export function AgentPanel() {
   }, [projectPath])
 
   useEffect(() => {
+    if (hydratedFromStorageRef.current) return
+    hydratedFromStorageRef.current = true
+
+    const persisted = readPersistedAgentState()
+    if (!persisted) return
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setProjectPath(persisted.projectPath)
+    setProjectInfo(persisted.projectInfo)
+    setModelId(persisted.modelId || "anthropic:sonnet")
+
+    if (persisted.sessions.length > 0) {
+      setSessions(persisted.sessions)
+      const exists = persisted.sessions.some(
+        (session) => session.id === persisted.currentSessionId
+      )
+      setCurrentSessionId(
+        exists ? persisted.currentSessionId : persisted.sessions[0].id
+      )
+    }
+  }, [])
+
+  useEffect(() => {
+    let disposed = false
+    const loadSessionMetadata = async () => {
+      try {
+        const res = await fetch("/api/agent/sessions")
+        const data = (await res.json()) as {
+          sessions?: Array<{
+            conversationId: string
+            title?: string
+            tag?: string | null
+          }>
+        }
+        if (disposed || !Array.isArray(data.sessions)) return
+        const byConversation = new Map(
+          data.sessions.map((session) => [session.conversationId, session])
+        )
+        setSessions((prev) =>
+          prev.map((session) => {
+            const meta = byConversation.get(session.conversationId)
+            if (!meta) return session
+            return {
+              ...session,
+              name: meta.title || session.name,
+              tag: meta.tag ?? session.tag ?? null,
+            }
+          })
+        )
+      } catch {
+        // ignore metadata load failures
+      }
+    }
+    void loadSessionMetadata()
+    return () => {
+      disposed = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!hydratedFromStorageRef.current) return
+    if (!activeSession) return
+
+    writePersistedAgentState({
+      projectPath,
+      projectInfo,
+      modelId,
+      sessions,
+      currentSessionId,
+    })
+  }, [
+    projectPath,
+    projectInfo,
+    modelId,
+    sessions,
+    currentSessionId,
+    activeSession,
+  ])
+
+  useEffect(() => {
+    if (!activeSession?.conversationId) return
+    let disposed = false
+
+    const loadProtocol = async () => {
+      try {
+        const res = await fetch(
+          `/api/agent/protocol?conversationId=${encodeURIComponent(
+            activeSession.conversationId
+          )}`
+        )
+        const data = (await res.json()) as {
+          events?: Array<{
+            type: string
+            subtype?: string
+            payload?: Record<string, unknown>
+          }>
+        }
+        if (disposed) return
+        const events = data.events || []
+        const lastStatus = [...events]
+          .reverse()
+          .find(
+            (event) => event.type === "system" && event.subtype === "status"
+          )
+        const lastResult = [...events]
+          .reverse()
+          .find((event) => event.type === "result")
+        const usage = lastResult?.payload?.usage as
+          | { estimatedCostUsd?: number }
+          | undefined
+        setRuntimeStatus(
+          lastStatus?.payload?.status ? String(lastStatus.payload.status) : null
+        )
+        setEstimatedCostUsd(
+          typeof usage?.estimatedCostUsd === "number"
+            ? usage.estimatedCostUsd
+            : null
+        )
+      } catch {
+        if (!disposed) {
+          setRuntimeStatus(null)
+          setEstimatedCostUsd(null)
+        }
+      }
+    }
+
+    void loadProtocol()
+    const interval = window.setInterval(loadProtocol, 4000)
+    return () => {
+      disposed = true
+      window.clearInterval(interval)
+    }
+  }, [activeSession?.conversationId, messages.length, status])
+
+  useEffect(() => {
     const updateSettings = () => {
-      setProviderApiKeys(readAgentSettings().providerApiKeys)
+      const settings = readAgentSettings()
+      setProviderApiKeys(settings.providerApiKeys)
+      setPermissionMode(settings.permissionMode)
     }
     updateSettings()
     window.addEventListener("staged-agent-settings-updated", updateSettings)
     window.addEventListener("storage", updateSettings)
     return () => {
-      window.removeEventListener("staged-agent-settings-updated", updateSettings)
+      window.removeEventListener(
+        "staged-agent-settings-updated",
+        updateSettings
+      )
       window.removeEventListener("storage", updateSettings)
     }
   }, [])
 
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData.items
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile()
+        if (file) {
+          const reader = new FileReader()
+          reader.onload = (event) => {
+            if (event.target?.result) {
+              setPastedImage(event.target.result as string)
+            }
+          }
+          reader.readAsDataURL(file)
+          e.preventDefault()
+          return
+        }
+      }
+    }
+  }
+
   const handleSend = useCallback(() => {
-    if (!input.trim() || isLoading) return
-    const text = input
+    if ((!input.trim() && !pastedImage) || isLoading) return
+
+    const parts: Array<{
+      type: "text" | "image"
+      text?: string
+      image?: string
+    }> = []
+    if (pastedImage) {
+      parts.push({ type: "image", image: pastedImage })
+    }
+    if (input.trim()) {
+      parts.push({ type: "text", text: input })
+    }
+
     setInput("")
+    setPastedImage(null)
+
     sendMessage(
-      { text },
+      { parts },
       {
         body: {
           projectPath: projectPath || "",
           modelId,
-          conversationId,
+          conversationId: activeSession?.conversationId,
           backend: "auto",
           providerApiKeys,
+          permissionMode,
         },
       }
     )
@@ -797,13 +1335,28 @@ export function AgentPanel() {
     }
   }, [
     input,
+    pastedImage,
     isLoading,
     sendMessage,
     projectPath,
     modelId,
-    conversationId,
+    activeSession?.conversationId,
     providerApiKeys,
+    permissionMode,
   ])
+
+  const handleAbort = useCallback(async () => {
+    if (!activeConversationId) return
+    try {
+      await fetch("/api/agent/abort", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId: activeConversationId }),
+      })
+    } catch {
+      // ignore network failures; UI stream will eventually settle
+    }
+  }, [activeConversationId])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -813,14 +1366,13 @@ export function AgentPanel() {
   }
 
   const handleDisconnect = () => {
+    const firstSession = createSession("Chat 1")
     setProjectPath(null)
     setProjectInfo(null)
-    setMessages([])
-    setConversationId(
-      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2)}`
-    )
+    setSessions([firstSession])
+    setCurrentSessionId(firstSession.id)
+    setMessages(firstSession.messages)
+    setInput("")
   }
 
   // ── Connect screen ──
@@ -842,7 +1394,6 @@ export function AgentPanel() {
     <div className="flex h-full w-full flex-col bg-background">
       {/* Header bar */}
       <div className="flex h-11 items-center gap-2 border-b bg-muted/30 px-4">
-        <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
         <span className="text-sm font-medium text-foreground">Staged AI</span>
         <span className="text-border">|</span>
         <FolderOpen className="h-3 w-3 text-muted-foreground" />
@@ -853,7 +1404,7 @@ export function AgentPanel() {
           <div className="flex items-center gap-1">
             <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
               <GitBranch className="h-3 w-3" />
-              <span className="text-[9px] uppercase tracking-wide opacity-80">
+              <span className="text-[9px] tracking-wide uppercase opacity-80">
                 Branch
               </span>
             </span>
@@ -864,14 +1415,20 @@ export function AgentPanel() {
             )}
           </div>
         )}
-        {projectInfo?.projectType && projectInfo.projectType !== "unknown" && (
-          <span className="rounded border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-            {PROJECT_TYPE_LABELS[projectInfo.projectType]}
-          </span>
-        )}
+
         <span className="rounded border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
           {modelId}
         </span>
+        {runtimeStatus && (
+          <span className="rounded border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            {runtimeStatus}
+          </span>
+        )}
+        {estimatedCostUsd != null && (
+          <span className="rounded border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            ${estimatedCostUsd.toFixed(4)}
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-1">
           <button
             onClick={handleDisconnect}
@@ -883,9 +1440,62 @@ export function AgentPanel() {
         </div>
       </div>
 
+      <SessionTabs
+        sessions={sessions}
+        currentSessionId={currentSessionId}
+        onSessionSelect={handleSessionSelect}
+        onNewSession={handleNewSession}
+        onSessionClose={handleSessionClose}
+        onSessionRename={handleSessionRename}
+        onSessionTag={handleSessionTag}
+        onSessionFork={handleSessionFork}
+      />
+
+      <Dialog
+        open={sessionEditDialog.open}
+        onOpenChange={(open) =>
+          setSessionEditDialog((prev) => ({ ...prev, open }))
+        }
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {sessionEditDialog.mode === "rename"
+                ? "Rename Session"
+                : "Tag Session"}
+            </DialogTitle>
+          </DialogHeader>
+          <Input
+            value={sessionEditDialog.value}
+            onChange={(e) =>
+              setSessionEditDialog((prev) => ({
+                ...prev,
+                value: e.target.value,
+              }))
+            }
+            placeholder={
+              sessionEditDialog.mode === "rename"
+                ? "Session name"
+                : "Tag (empty to clear)"
+            }
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() =>
+                setSessionEditDialog((prev) => ({ ...prev, open: false }))
+              }
+            >
+              Cancel
+            </Button>
+            <Button onClick={() => void handleSessionEditSave()}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
-        <div className="space-y-3 p-4 font-mono text-sm">
+        <div className="space-y-3 p-4 text-sm">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center py-24">
               <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border bg-muted">
@@ -921,27 +1531,53 @@ export function AgentPanel() {
           )}
 
           {messages.map((message) => {
-            const parts = (message as any).parts || []
+            const parts = (message.parts || []) as AgentMessagePart[]
 
             if (message.role === "user") {
-              const textContent = parts
-                .filter((p: any) => p.type === "text")
-                .map((p: any) => p.text)
-                .join("")
               return (
-                <div key={message.id} className="flex gap-2">
+                <div
+                  key={message.id}
+                  className="flex items-start gap-2 rounded-lg border bg-muted p-3"
+                >
                   <span className="flex-shrink-0 font-bold text-primary">
                     &gt;
                   </span>
-                  <span className="text-foreground">{textContent}</span>
+                  <div className="flex flex-col gap-2">
+                    {parts.map((part, i) => {
+                      if (part.type === "text" && part.text) {
+                        return (
+                          <span
+                            key={i}
+                            className="whitespace-pre-wrap text-foreground"
+                          >
+                            {part.text}
+                          </span>
+                        )
+                      }
+                      if (
+                        part.type === "image" &&
+                        typeof part.image === "string"
+                      ) {
+                        return (
+                          <img
+                            key={i}
+                            src={part.image}
+                            alt="User provided image"
+                            className="max-h-64 rounded-lg"
+                          />
+                        )
+                      }
+                      return null
+                    })}
+                  </div>
                 </div>
               )
             }
 
             // Assistant messages
             return (
-              <div key={message.id} className="space-y-1">
-                {parts.map((part: any, i: number) => {
+              <div key={message.id} className="space-y-1 font-mono">
+                {parts.map((part, i: number) => {
                   // Tool invocations — v6: type is "tool-{name}"
                   if (
                     part.type?.startsWith("tool-") &&
@@ -955,13 +1591,13 @@ export function AgentPanel() {
                         toolName={toolName}
                         input={part.input}
                         output={part.output}
-                        state={part.state}
+                        state={part.state || "result"}
                       />
                     )
                   }
                   // Fallback: "tool-invocation" type
                   if (part.type === "tool-invocation") {
-                    const inv = part.toolInvocation || part
+                    const inv = part.toolInvocation ?? {}
                     return (
                       <ToolCallBlock
                         key={`${message.id}-${i}`}
@@ -993,15 +1629,48 @@ export function AgentPanel() {
                       />
                     )
                   }
-                  if (part.type === "data-claude_event") {
+                  if (
+                    part.type === "data-agent_event" ||
+                    part.type === "data-claude_event"
+                  ) {
                     return (
-                      <ClaudeEventBlock
+                      <AgentEventBlock
                         key={`${message.id}-${i}`}
                         event={
                           typeof part.data === "object" && part.data
                             ? (part.data as Record<string, unknown>)
                             : { raw: part.data }
                         }
+                      />
+                    )
+                  }
+                  if (
+                    part.type === "data-agent_status" ||
+                    part.type === "data-claude_status"
+                  ) {
+                    const status = isRecord(part.data)
+                      ? part.data.status
+                      : undefined
+                    if (typeof status !== "string") return null
+                    return (
+                      <AgentStatusBlock
+                        key={`${message.id}-${i}`}
+                        status={status}
+                      />
+                    )
+                  }
+                  if (
+                    part.type === "data-agent_thinking" ||
+                    part.type === "data-claude_thinking"
+                  ) {
+                    const delta = isRecord(part.data)
+                      ? part.data.delta
+                      : undefined
+                    if (typeof delta !== "string" || !delta.trim()) return null
+                    return (
+                      <AgentThinkingBlock
+                        key={`${message.id}-${i}`}
+                        text={delta}
                       />
                     )
                   }
@@ -1036,11 +1705,27 @@ export function AgentPanel() {
       <div className="px-4 pb-4">
         <div className="rounded-2xl border bg-muted/30">
           <div className="px-4 pt-3 pb-1">
+            {pastedImage && (
+              <div className="relative mb-2 h-24 w-24 rounded-md border">
+                <img
+                  src={pastedImage}
+                  alt="Pasted content"
+                  className="h-full w-full rounded-md object-cover"
+                />
+                <button
+                  onClick={() => setPastedImage(null)}
+                  className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-background/50 text-muted-foreground backdrop-blur-sm transition-colors hover:bg-background/80 hover:text-foreground"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            )}
             <textarea
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
               placeholder="Ask Staged AI anything..."
               rows={1}
               className="max-h-32 w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
@@ -1057,15 +1742,37 @@ export function AgentPanel() {
               <Plus className="h-4 w-4" />
             </button>
             <ModelSelector value={modelId} onChange={setModelId} />
+            <select
+              value={permissionMode}
+              onChange={(event) => {
+                const nextMode = event.target.value as
+                  | "manualEdits"
+                  | "bypassPermissions"
+                  | "plan"
+                setPermissionMode(nextMode)
+                const current = readAgentSettings()
+                writeAgentSettings({
+                  providerApiKeys: current.providerApiKeys,
+                  permissionMode: nextMode,
+                })
+              }}
+              className="h-7 rounded-md border bg-background px-2 text-xs text-muted-foreground"
+              title="Permission mode"
+            >
+              <option value="plan">Plan</option>
+              <option value="manualEdits">Manual edits</option>
+              <option value="bypassPermissions">Bypass</option>
+            </select>
             <div className="ml-auto">
               <button
                 type="button"
-                disabled={!input.trim() || isLoading}
-                onClick={handleSend}
+                disabled={!isLoading && !input.trim()}
+                onClick={isLoading ? handleAbort : handleSend}
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-40"
+                title={isLoading ? "Stop current run" : "Send"}
               >
                 {isLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <X className="h-4 w-4" />
                 ) : (
                   <ArrowRight className="h-4 w-4" />
                 )}

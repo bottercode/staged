@@ -1,0 +1,4 @@
+{"ts":"2026-04-01T17:40:55.077Z","conversationId":"8ef42c64-9292-4ef2-92b8-ccdaf728f6b7","type":"turn_start","payload":{"modelId":"google:gemini-2.5-pro","provider":"google","backend":"auto","projectPath":"/Users/devanshdwivedi/Developer/staged"}}
+{"ts":"2026-04-01T17:40:55.126Z","conversationId":"8ef42c64-9292-4ef2-92b8-ccdaf728f6b7","type":"turn_finish","payload":{"isError":false,"backend":"query_engine","usage":{"inputChars":28,"outputChars":0,"inputTokens":7,"outputTokens":0,"totalTokens":7,"estimatedCostUsd":0.000011}}}
+{"ts":"2026-04-01T17:41:00.557Z","conversationId":"8ef42c64-9292-4ef2-92b8-ccdaf728f6b7","type":"permission_denial","payload":{"toolName":"Bash","reason":"Tool \"Bash\" blocked in plan mode."}}
+{"ts":"2026-04-01T17:41:12.530Z","conversationId":"8ef42c64-9292-4ef2-92b8-ccdaf728f6b7","type":"permission_denial","payload":{"toolName":"Bash","reason":"Tool \"Bash\" blocked in plan mode."}}

@@ -1,13 +1,13 @@
 "use client"
 
 import { redirect } from "next/navigation"
+import { skipToken } from "@tanstack/react-query"
 import { trpc } from "@/lib/trpc/client"
 
 export default function TasksPage() {
   const { data: workspace } = trpc.workspace.getDefault.useQuery()
   const { data: boards } = trpc.board.list.useQuery(
-    { workspaceId: workspace?.id! },
-    { enabled: !!workspace }
+    workspace ? { workspaceId: workspace.id } : skipToken
   )
 
   if (boards && boards.length > 0) {

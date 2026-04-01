@@ -12,10 +12,12 @@ export const AGENT_SETTINGS_STORAGE_KEY = "staged-agent-settings-v1"
 
 export type AgentSettings = {
   providerApiKeys: AgentProviderApiKeys
+  permissionMode: "manualEdits" | "bypassPermissions" | "plan"
 }
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   providerApiKeys: {},
+  permissionMode: "manualEdits",
 }
 
 export function readAgentSettings(): AgentSettings {
@@ -25,11 +27,20 @@ export function readAgentSettings(): AgentSettings {
     const raw = localStorage.getItem(AGENT_SETTINGS_STORAGE_KEY)
     if (!raw) return DEFAULT_AGENT_SETTINGS
     const parsed = JSON.parse(raw) as Partial<AgentSettings>
+    const rawMode = (parsed as { permissionMode?: string }).permissionMode
+    const mappedMode =
+      rawMode === "acceptEdits" || rawMode === "default"
+        ? "manualEdits"
+        : rawMode === "bypassPermissions" || rawMode === "plan" || rawMode === "manualEdits"
+          ? rawMode
+          : DEFAULT_AGENT_SETTINGS.permissionMode
+
     return {
       providerApiKeys: {
         ...DEFAULT_AGENT_SETTINGS.providerApiKeys,
         ...(parsed.providerApiKeys || {}),
       },
+      permissionMode: mappedMode,
     }
   } catch {
     return DEFAULT_AGENT_SETTINGS
@@ -41,4 +52,3 @@ export function writeAgentSettings(settings: AgentSettings) {
   localStorage.setItem(AGENT_SETTINGS_STORAGE_KEY, JSON.stringify(settings))
   window.dispatchEvent(new Event("staged-agent-settings-updated"))
 }
-

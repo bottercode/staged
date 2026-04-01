@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useCallback, useEffect } from "react"
+import { useRef, useEffect, useState } from "react"
 import { usePathname } from "next/navigation"
 import { trpc } from "@/lib/trpc/client"
 
@@ -15,6 +15,7 @@ export function useNotifications(
   const seenCounts = useRef<Record<string, number>>({})
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const initialized = useRef(false)
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({})
 
   // Preload audio
   useEffect(() => {
@@ -70,16 +71,23 @@ export function useNotifications(
   }, [counts, activeId])
 
   // Calculate unread counts (difference from last time user viewed)
-  const unreadCounts: Record<string, number> = {}
-  if (counts) {
+  useEffect(() => {
+    if (!counts) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setUnreadCounts({})
+      return
+    }
+
+    const nextUnreadCounts: Record<string, number> = {}
     for (const [id, count] of Object.entries(counts)) {
       const seen = seenCounts.current[id] ?? 0
       const diff = count - seen
       if (diff > 0 && id !== activeId) {
-        unreadCounts[id] = diff
+        nextUnreadCounts[id] = diff
       }
     }
-  }
+    setUnreadCounts(nextUnreadCounts)
+  }, [counts, activeId])
 
   return { unreadCounts }
 }

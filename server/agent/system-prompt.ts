@@ -17,12 +17,38 @@ Guidelines:
 - Use Glob/Grep for searching - do NOT use Bash for grep/find/cat operations.
 - Write clean, minimal code. Follow existing patterns in the codebase.
 - Run tests after making changes if tests exist.
-- Be direct. Lead with the answer or action, not the reasoning.`
+- Be direct. Lead with the answer or action, not the reasoning.
+- Never claim a command was run, a file was changed, or a test passed unless it actually happened through tools in this session.
+- If a tool fails, report the real error and next action; do not fabricate success.`
+
+const MODE_ADDENDUMS: Record<string, string> = {
+  plan: `
+
+IMPORTANT — You are in PLAN MODE. Before making any file changes or running commands:
+1. First explain what you plan to do and why.
+2. List the specific files you'll modify and the changes you'll make.
+3. Wait for acknowledgment, then proceed to execute.
+You have full access to all tools — use them. Just explain before you act.`,
+
+  manualEdits: `
+
+IMPORTANT — You are in MANUAL EDITS MODE.
+- You can read files, search, and run commands freely.
+- Before writing or editing any file, briefly explain what change you're making and why.
+- Prefer small, targeted edits over large rewrites.
+- Always show the user what changed after an edit.`,
+
+  bypassPermissions: "",
+}
 
 export function buildProjectContextPrompt(
   projectPath: string,
   folderName: string,
-  entries: string[]
+  entries: string[],
+  permissionMode?: string
 ) {
-  return `${BASE_SYSTEM_PROMPT}\n\nConnected project: ${projectPath} (${folderName})\nTop-level files:\n${entries.join("\n")}`
+  let prompt = `${BASE_SYSTEM_PROMPT}\n\nConnected project: ${projectPath} (${folderName})\nTop-level files:\n${entries.join("\n")}`
+  const addendum = MODE_ADDENDUMS[permissionMode ?? "bypassPermissions"] ?? ""
+  if (addendum) prompt += addendum
+  return prompt
 }

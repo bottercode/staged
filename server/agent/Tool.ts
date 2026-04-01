@@ -1,10 +1,13 @@
 import { tool } from "ai"
 import type { z } from "zod"
+import { decideToolPermission } from "@/server/agent/permissions"
 
 export type ToolUseContext = {
   projectPath: string | null
   resolvePath: (requestedPath: string) => string
   defaultCwd: string
+  permissionMode?: "manualEdits" | "bypassPermissions" | "plan"
+  onPermissionDenied?: (toolName: string, reason: string) => void
 }
 
 type ToolExecutor<TInput> = {
@@ -37,8 +40,20 @@ export function buildToolset(tools: Tools, context: ToolUseContext) {
       tool({
         description: definition.description,
         inputSchema: definition.inputSchema,
-        execute: async (input) =>
-          definition.execute(definition.inputSchema.parse(input), context),
+        execute: async (input) => {
+          const decision = decideToolPermission(
+            context.permissionMode,
+            definition.name
+          )
+          if (!decision.allowed) {
+            context.onPermissionDenied?.(
+              definition.name,
+              decision.reason || "Permission denied"
+            )
+            return { error: decision.reason || "Permission denied" }
+          }
+          return definition.execute(definition.inputSchema.parse(input), context)
+        },
       }),
     ])
   )

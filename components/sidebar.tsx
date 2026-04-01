@@ -29,6 +29,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { skipToken } from "@tanstack/react-query"
 import { cn } from "@/lib/utils"
 import { useMemo, useState } from "react"
 import { AgentSettingsDialog } from "./agent-settings-dialog"
@@ -144,8 +145,6 @@ function NavRail({
           <TooltipContent side="right">Client Portals</TooltipContent>
         </Tooltip>
 
-        <div className="mt-auto" />
-
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -162,6 +161,8 @@ function NavRail({
           </TooltipTrigger>
           <TooltipContent side="right">AI Agent</TooltipContent>
         </Tooltip>
+
+        <div className="mt-auto" />
 
         <Tooltip>
           <TooltipTrigger asChild>
@@ -514,24 +515,21 @@ export function Sidebar() {
 
   const { data: workspace } = trpc.workspace.getDefault.useQuery()
   const { data: channels } = trpc.channel.list.useQuery(
-    { workspaceId: workspace?.id! },
-    { enabled: !!workspace }
+    workspace ? { workspaceId: workspace.id } : skipToken
   )
   const { data: dmRooms } = trpc.dm.list.useQuery(
-    { workspaceId: workspace?.id!, userId: currentUser?.id! },
-    { enabled: !!workspace && !!currentUser }
+    workspace && currentUser
+      ? { workspaceId: workspace.id, userId: currentUser.id }
+      : skipToken
   )
   const { data: boards } = trpc.board.list.useQuery(
-    { workspaceId: workspace?.id! },
-    { enabled: !!workspace }
+    workspace ? { workspaceId: workspace.id } : skipToken
   )
   const { data: portalList } = trpc.portal.list.useQuery(
-    { workspaceId: workspace?.id! },
-    { enabled: !!workspace }
+    workspace ? { workspaceId: workspace.id } : skipToken
   )
   const { data: docList } = trpc.doc.list.useQuery(
-    { workspaceId: workspace?.id! },
-    { enabled: !!workspace }
+    workspace ? { workspaceId: workspace.id } : skipToken
   )
 
   const channelIds = useMemo(() => channels?.map((c) => c.id) ?? [], [channels])

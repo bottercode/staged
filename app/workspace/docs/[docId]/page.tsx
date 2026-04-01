@@ -4,7 +4,6 @@ import { useState, useRef, useCallback } from "react"
 import { useParams } from "next/navigation"
 import { trpc } from "@/lib/trpc/client"
 import { DocEditor } from "@/components/docs/doc-editor"
-import { cn } from "@/lib/utils"
 
 function timeAgo(date: Date) {
   const seconds = Math.floor(

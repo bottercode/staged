@@ -6,7 +6,6 @@ import { useCurrentUser } from "@/lib/user-context"
 import { MessageList } from "./message-list"
 import { MessageInput } from "./message-input"
 import { Button } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
 
 export function ThreadPanel({
   parentId,
@@ -19,6 +18,7 @@ export function ThreadPanel({
 }) {
   const { currentUser } = useCurrentUser()
   const utils = trpc.useUtils()
+  const { data: users } = trpc.user.list.useQuery()
 
   const { data: thread } = trpc.message.thread.useQuery(
     { parentId },
@@ -47,11 +47,20 @@ export function ThreadPanel({
       </div>
 
       {/* Messages */}
-      <MessageList messages={allMessages} currentUserId={currentUser?.id} />
+      <MessageList
+        messages={allMessages}
+        currentUserId={currentUser?.id}
+        showThreadCount={false}
+      />
 
       {/* Input */}
       <MessageInput
         placeholder="Reply in thread..."
+        mentionUsers={
+          (users ?? [])
+            .filter((u) => u.id !== currentUser?.id)
+            .map((u) => ({ id: u.id, name: u.name }))
+        }
         onSend={(content) => {
           if (!currentUser) return
           sendMessage.mutate({

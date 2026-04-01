@@ -1,7 +1,7 @@
 "use client"
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { httpBatchLink } from "@trpc/client"
+import { httpBatchLink, splitLink, createWSClient, wsLink } from "@trpc/client"
 import { useState } from "react"
 import { trpc } from "@/lib/trpc/client"
 import superjson from "superjson"
@@ -9,6 +9,14 @@ import superjson from "superjson"
 function getBaseUrl() {
   if (typeof window !== "undefined") return ""
   return `http://localhost:3000`
+}
+
+function getWsUrl() {
+  if (typeof window === "undefined") return ""
+  if (window.location.protocol === "https:") {
+    return `wss://${window.location.host}`
+  }
+  return `ws://${window.location.host}`
 }
 
 export function TRPCProvider({ children }: { children: React.ReactNode }) {
@@ -26,16 +34,27 @@ export function TRPCProvider({ children }: { children: React.ReactNode }) {
       })
   )
 
-  const [trpcClient] = useState(() =>
-    trpc.createClient({
-      links: [
-        httpBatchLink({
-          url: `${getBaseUrl()}/api/trpc`,
-          transformer: superjson,
-        }),
-      ],
+  const [trpcClient] = useState(() => {
+    const wsClient = createWSClient({
+      url: getWsUrl(),
     })
-  )
+
+    const link = splitLink({
+      condition: (op) => op.type === "subscription",
+      true: wsLink({
+        client: wsClient,
+        transformer: superjson,
+      }),
+      false: httpBatchLink({
+        url: `${getBaseUrl()}/api/trpc`,
+        transformer: superjson,
+      }),
+    })
+
+    return trpc.createClient({
+      links: [link],
+    })
+  })
 
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
