@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { TRPCError } from "@trpc/server"
 import { router, publicProcedure } from "../trpc"
 import {
   portals,
@@ -9,7 +10,33 @@ import {
   boardColumns,
   tasks,
 } from "../../db/schema"
-import { eq, asc, desc } from "drizzle-orm"
+import { eq, asc, desc, inArray, sql } from "drizzle-orm"
+
+async function ensureTaskLabelsColumn(
+  db: {
+    execute: (query: unknown) => Promise<unknown>
+  }
+) {
+  await db.execute(sql`
+    alter table tasks
+    add column if not exists labels text[] not null default '{}'::text[]
+  `)
+}
+
+async function ensurePortalReviewColumns(
+  db: {
+    execute: (query: unknown) => Promise<unknown>
+  }
+) {
+  await db.execute(sql`
+    alter table portal_updates
+    add column if not exists reviewed_by_name text
+  `)
+  await db.execute(sql`
+    alter table portal_updates
+    add column if not exists reviewed_at timestamp
+  `)
+}
 
 export const portalRouter = router({
   list: publicProcedure
@@ -32,6 +59,7 @@ export const portalRouter = router({
   getById: publicProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      await ensurePortalReviewColumns(ctx.db)
       const [portal] = await ctx.db
         .select()
         .from(portals)
@@ -45,6 +73,8 @@ export const portalRouter = router({
           content: portalUpdates.content,
           type: portalUpdates.type,
           status: portalUpdates.status,
+          reviewedByName: portalUpdates.reviewedByName,
+          reviewedAt: portalUpdates.reviewedAt,
           createdAt: portalUpdates.createdAt,
           createdById: portalUpdates.createdById,
           authorName: users.name,
@@ -71,6 +101,7 @@ export const portalRouter = router({
   getBySlug: publicProcedure
     .input(z.object({ slug: z.string() }))
     .query(async ({ ctx, input }) => {
+      await ensurePortalReviewColumns(ctx.db)
       const [portal] = await ctx.db
         .select()
         .from(portals)
@@ -85,6 +116,8 @@ export const portalRouter = router({
           content: portalUpdates.content,
           type: portalUpdates.type,
           status: portalUpdates.status,
+          reviewedByName: portalUpdates.reviewedByName,
+          reviewedAt: portalUpdates.reviewedAt,
           createdAt: portalUpdates.createdAt,
           authorName: users.name,
           authorAvatar: users.avatarUrl,
@@ -233,15 +266,180 @@ export const portalRouter = router({
       z.object({
         updateId: z.string().uuid(),
         status: z.enum(["approved", "rejected"]),
+        reviewerName: z.string().min(1).max(120).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await ensurePortalReviewColumns(ctx.db)
       const [update] = await ctx.db
         .update(portalUpdates)
-        .set({ status: input.status })
+        .set({
+          status: input.status,
+          reviewedByName: input.reviewerName?.trim() || null,
+          reviewedAt: new Date(),
+        })
         .where(eq(portalUpdates.id, input.updateId))
         .returning()
 
       return update
+    }),
+
+  createIssue: publicProcedure
+    .input(
+      z.object({
+        portalId: z.string().uuid(),
+        boardIds: z.array(z.string().uuid()).min(1),
+        title: z.string().min(1).max(500),
+        section: z
+          .enum(["todo", "in_progress", "done"])
+          .default("todo"),
+        description: z.string().optional(),
+        priority: z.enum(["low", "medium", "high", "urgent"]).default("medium"),
+        dueDate: z.string().datetime().optional(),
+        assigneeId: z.string().uuid().optional(),
+        labels: z.array(z.string().min(1).max(40)).optional(),
+        createdById: z.string().uuid(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await ensureTaskLabelsColumn(ctx.db)
+
+      const [portal] = await ctx.db
+        .select({
+          id: portals.id,
+          workspaceId: portals.workspaceId,
+        })
+        .from(portals)
+        .where(eq(portals.id, input.portalId))
+        .limit(1)
+
+      if (!portal) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Portal not found",
+        })
+      }
+
+      const uniqueBoardIds = Array.from(new Set(input.boardIds))
+      const selectedBoards = await ctx.db
+        .select({
+          id: boards.id,
+        })
+        .from(boards)
+        .where(
+          inArray(boards.id, uniqueBoardIds)
+        )
+
+      const allowedBoardIds = selectedBoards
+        .map((board) => board.id)
+        .filter((boardId) => Boolean(boardId))
+
+      if (allowedBoardIds.length !== uniqueBoardIds.length) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "One or more selected boards were not found",
+        })
+      }
+
+      const boardWorkspaceMap = new Map<string, boolean>()
+      const boardWorkspaceRows = await ctx.db
+        .select({
+          id: boards.id,
+          workspaceId: boards.workspaceId,
+        })
+        .from(boards)
+        .where(inArray(boards.id, allowedBoardIds))
+      for (const row of boardWorkspaceRows) {
+        boardWorkspaceMap.set(row.id, row.workspaceId === portal.workspaceId)
+      }
+
+      if (allowedBoardIds.some((boardId) => !boardWorkspaceMap.get(boardId))) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Selected board does not belong to this portal workspace",
+        })
+      }
+
+      const allColumns = await ctx.db
+        .select({
+          id: boardColumns.id,
+          boardId: boardColumns.boardId,
+          name: boardColumns.name,
+          position: boardColumns.position,
+        })
+        .from(boardColumns)
+        .where(inArray(boardColumns.boardId, allowedBoardIds))
+        .orderBy(asc(boardColumns.position))
+
+      const columnsByBoard = new Map<string, Array<{ id: string; name: string }>>()
+      for (const column of allColumns) {
+        const list = columnsByBoard.get(column.boardId) ?? []
+        list.push({ id: column.id, name: column.name })
+        columnsByBoard.set(column.boardId, list)
+      }
+
+      const boardsMissingColumn = allowedBoardIds.filter((boardId) => {
+        const cols = columnsByBoard.get(boardId) ?? []
+        return cols.length === 0
+      })
+      if (boardsMissingColumn.length > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Selected board has no columns",
+        })
+      }
+
+      const sectionMatchers: Record<
+        "todo" | "in_progress" | "done",
+        (name: string) => boolean
+      > = {
+        todo: (name) => /to\s*do|todo|backlog/i.test(name),
+        in_progress: (name) => /in\s*progress|progress|doing/i.test(name),
+        done: (name) => /done|completed|complete|closed/i.test(name),
+      }
+
+      const created = []
+      for (const boardId of allowedBoardIds) {
+        const cols = columnsByBoard.get(boardId) ?? []
+        const matched =
+          cols.find((col) => sectionMatchers[input.section](col.name)) ?? cols[0]
+        const columnId = matched?.id
+        if (!columnId) continue
+
+        const [maxPos] = await ctx.db
+          .select({ max: sql<number>`coalesce(max(${tasks.position}), -1)` })
+          .from(tasks)
+          .where(eq(tasks.columnId, columnId))
+
+        const [task] = await ctx.db
+          .insert(tasks)
+          .values({
+            boardId,
+            columnId,
+            workspaceId: portal.workspaceId,
+            title: input.title.trim(),
+            description: input.description?.trim() || null,
+            assigneeId: input.assigneeId || null,
+            priority: input.priority,
+            dueDate: input.dueDate ? new Date(input.dueDate) : null,
+            labels: input.labels ?? [],
+            position: (maxPos?.max ?? -1) + 1,
+            createdById: input.createdById,
+          })
+          .returning({
+            id: tasks.id,
+            boardId: tasks.boardId,
+            columnId: tasks.columnId,
+            title: tasks.title,
+          })
+
+        if (task) created.push(task)
+      }
+
+      return {
+        ok: true,
+        createdCount: created.length,
+        created,
+      }
     }),
 })

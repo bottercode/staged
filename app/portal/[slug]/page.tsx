@@ -378,6 +378,19 @@ export default function ClientPortalPage() {
                         <p className="mt-1.5 text-sm leading-relaxed text-foreground/90">
                           {update.content}
                         </p>
+                        {update.type === "deliverable" &&
+                          update.status !== "none" &&
+                          update.reviewedByName && (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {update.status === "approved"
+                                ? "Approved"
+                                : "Changes requested"}{" "}
+                              by {update.reviewedByName}
+                              {update.reviewedAt
+                                ? ` • ${formatDate(update.reviewedAt)}`
+                                : ""}
+                            </p>
+                          )}
 
                         {/* Deliverable actions */}
                         {update.type === "deliverable" &&
@@ -392,6 +405,7 @@ export default function ClientPortalPage() {
                                   approveDeliverable.mutate({
                                     updateId: update.id,
                                     status: "approved",
+                                    reviewerName: clientName,
                                   })
                                 }
                               >
@@ -406,6 +420,7 @@ export default function ClientPortalPage() {
                                   approveDeliverable.mutate({
                                     updateId: update.id,
                                     status: "rejected",
+                                    reviewerName: clientName,
                                   })
                                 }
                               >

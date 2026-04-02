@@ -444,6 +444,8 @@ export const portalUpdates = pgTable("portal_updates", {
   content: text("content").notNull(),
   type: text("type").notNull().default("update"),
   status: text("status").notNull().default("none"),
+  reviewedByName: text("reviewed_by_name"),
+  reviewedAt: timestamp("reviewed_at"),
   createdById: uuid("created_by_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),

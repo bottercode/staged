@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { useParams } from "next/navigation"
+import { skipToken } from "@tanstack/react-query"
 import {
   Globe,
   ExternalLink,
@@ -17,11 +18,29 @@ import {
   Mail,
   Copy,
   Check,
+  X,
+  CalendarDays,
+  Flag,
+  Tag,
+  UserRound,
 } from "lucide-react"
 import { trpc } from "@/lib/trpc/client"
 import { useCurrentUser } from "@/lib/user-context"
 import { Button } from "@/components/ui/button"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Input } from "@/components/ui/input"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { Separator } from "@/components/ui/separator"
 import {
   Select,
   SelectContent,
@@ -29,6 +48,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
 function formatDate(date: Date) {
@@ -60,11 +80,30 @@ export default function PortalManagePage() {
   )
   const [replyTexts, setReplyTexts] = useState<Record<string, string>>({})
   const [copied, setCopied] = useState(false)
+  const [showCreateIssueDialog, setShowCreateIssueDialog] = useState(false)
+  const [issueTitle, setIssueTitle] = useState("")
+  const [issueSection, setIssueSection] = useState<
+    "todo" | "in_progress" | "done"
+  >("todo")
+  const [issueDescription, setIssueDescription] = useState("")
+  const [issuePriority, setIssuePriority] = useState<
+    "low" | "medium" | "high" | "urgent"
+  >("medium")
+  const [issueAssigneeId, setIssueAssigneeId] = useState("unassigned")
+  const [issueDueDate, setIssueDueDate] = useState("")
+  const [issueLabels, setIssueLabels] = useState("")
+  const [issueBoardIds, setIssueBoardIds] = useState<string[]>([])
   const utils = trpc.useUtils()
 
   const { data: portal } = trpc.portal.getById.useQuery(
     { id: portalId },
     { refetchInterval: 3000 }
+  )
+  const { data: boards } = trpc.board.list.useQuery(
+    portal ? { workspaceId: portal.workspaceId } : skipToken
+  )
+  const { data: workspaceMembers } = trpc.workspace.getMembers.useQuery(
+    portal ? { workspaceId: portal.workspaceId } : skipToken
   )
 
   const addUpdate = trpc.portal.addUpdate.useMutation({
@@ -79,6 +118,25 @@ export default function PortalManagePage() {
     onSuccess: (_, variables) => {
       utils.portal.getById.invalidate({ id: portalId })
       setReplyTexts((prev) => ({ ...prev, [variables.updateId]: "" }))
+    },
+  })
+
+  const createIssue = trpc.portal.createIssue.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.portal.getById.invalidate({ id: portalId }),
+        utils.board.list.invalidate(),
+        utils.board.getById.invalidate(),
+      ])
+      setIssueTitle("")
+      setIssueSection("todo")
+      setIssueDescription("")
+      setIssuePriority("medium")
+      setIssueAssigneeId("unassigned")
+      setIssueDueDate("")
+      setIssueLabels("")
+      setIssueBoardIds([])
+      setShowCreateIssueDialog(false)
     },
   })
 
@@ -285,6 +343,38 @@ export default function PortalManagePage() {
                 </div>
               </form>
             </div>
+
+            {/* Create issue */}
+            <div>
+              <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                Issues
+              </h3>
+              <div className="rounded-lg border bg-card p-3">
+                <p className="text-sm font-medium">Create issue from portal</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Create a task directly in one or multiple boards.
+                </p>
+                <Button
+                  size="sm"
+                  className="mt-3 h-8 w-full"
+                  onClick={() => {
+                    if (!issueBoardIds.length && boards?.length) {
+                      const defaultBoardId =
+                        portal.boardId && boards.some((b) => b.id === portal.boardId)
+                          ? portal.boardId
+                          : boards[0]?.id
+                      if (defaultBoardId) {
+                        setIssueBoardIds([defaultBoardId])
+                      }
+                    }
+                    setShowCreateIssueDialog(true)
+                  }}
+                >
+                  <Plus className="mr-1 h-3.5 w-3.5" />
+                  New issue
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -396,6 +486,19 @@ export default function PortalManagePage() {
                         <p className="mt-1.5 text-sm leading-relaxed text-foreground/90">
                           {update.content}
                         </p>
+                        {update.type === "deliverable" &&
+                          update.status !== "none" &&
+                          update.reviewedByName && (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {update.status === "approved"
+                                ? "Approved"
+                                : "Changes requested"}{" "}
+                              by {update.reviewedByName}
+                              {update.reviewedAt
+                                ? ` • ${formatDate(update.reviewedAt)}`
+                                : ""}
+                            </p>
+                          )}
 
                         {/* Comments toggle */}
                         <button
@@ -509,6 +612,316 @@ export default function PortalManagePage() {
           )}
         </div>
       </div>
+
+      <Dialog
+        open={showCreateIssueDialog}
+        onOpenChange={(open) => {
+          if (open && !issueBoardIds.length && boards?.length) {
+            const defaultBoardId =
+              portal.boardId && boards.some((b) => b.id === portal.boardId)
+                ? portal.boardId
+                : boards[0]?.id
+            if (defaultBoardId) setIssueBoardIds([defaultBoardId])
+          }
+          setShowCreateIssueDialog(open)
+        }}
+      >
+        <DialogContent
+          className="flex h-[86vh] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-0 sm:h-[84vh] sm:w-[calc(100vw-4rem)] sm:max-w-[calc(100vw-4rem)] xl:max-w-[1360px]"
+          showCloseButton={false}
+        >
+          <DialogHeader className="sr-only">
+            <DialogTitle>Create issue</DialogTitle>
+          </DialogHeader>
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (!currentUser || !portal || !issueTitle.trim() || issueBoardIds.length === 0) {
+                return
+              }
+              createIssue.mutate({
+                portalId: portal.id,
+                boardIds: issueBoardIds,
+                title: issueTitle.trim(),
+                section: issueSection,
+                description: issueDescription.trim() || undefined,
+                priority: issuePriority,
+                dueDate: issueDueDate
+                  ? new Date(`${issueDueDate}T00:00:00`).toISOString()
+                  : undefined,
+                assigneeId: issueAssigneeId === "unassigned" ? undefined : issueAssigneeId,
+                labels: issueLabels
+                  .split(",")
+                  .map((label) => label.trim())
+                  .filter(Boolean),
+                createdById: currentUser.id,
+              })
+            }}
+            className="flex h-full flex-col"
+          >
+            <div className="flex-1 overflow-y-auto">
+              <div className="px-6 pt-6 pb-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+                    <span className="h-2 w-2 rounded-full bg-red-500" />
+                    <span>Issue</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateIssueDialog(false)}
+                    className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <Textarea
+                  value={issueTitle}
+                  onChange={(e) => setIssueTitle(e.target.value)}
+                  placeholder="Issue title"
+                  autoFocus
+                  className="mt-3 min-h-[56px] resize-none border-0 px-0 text-4xl leading-tight font-semibold shadow-none focus-visible:ring-0"
+                />
+
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <Select
+                    value={issueSection}
+                    onValueChange={(value) =>
+                      setIssueSection(value as "todo" | "in_progress" | "done")
+                    }
+                  >
+                    <SelectTrigger className="h-8 w-[150px] text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todo">To Do</SelectItem>
+                      <SelectItem value="in_progress">In Progress</SelectItem>
+                      <SelectItem value="done">Done</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted"
+                      >
+                        <Flag className="h-4 w-4 text-amber-500" />
+                        {issuePriority === "urgent"
+                          ? "P1"
+                          : issuePriority === "high"
+                            ? "P2"
+                            : issuePriority === "medium"
+                              ? "P3"
+                              : "P4"}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent side="bottom" align="start" className="w-auto p-1">
+                      <div className="flex items-center gap-1">
+                        {[
+                          { id: "urgent", label: "P1" },
+                          { id: "high", label: "P2" },
+                          { id: "medium", label: "P3" },
+                          { id: "low", label: "P4" },
+                        ].map((priority) => (
+                          <button
+                            key={priority.id}
+                            type="button"
+                            onClick={() =>
+                              setIssuePriority(
+                                priority.id as "low" | "medium" | "high" | "urgent"
+                              )
+                            }
+                            className={cn(
+                              "rounded-md px-2 py-1 text-xs font-semibold",
+                              issuePriority === priority.id
+                                ? "bg-muted text-foreground"
+                                : "text-muted-foreground hover:bg-muted"
+                            )}
+                          >
+                            {priority.label}
+                          </button>
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted"
+                      >
+                        <CalendarDays className="h-4 w-4" />
+                        {issueDueDate
+                          ? new Date(`${issueDueDate}T00:00:00`).toLocaleDateString()
+                          : "No due date"}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent side="bottom" align="start" className="w-64 p-3">
+                      <Input
+                        type="date"
+                        value={issueDueDate}
+                        onChange={(e) => setIssueDueDate(e.target.value)}
+                      />
+                    </PopoverContent>
+                  </Popover>
+
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted"
+                      >
+                        <Tag className="h-4 w-4" />
+                        {issueLabels.trim()
+                          ? `${issueLabels.split(",").filter((v) => v.trim()).length} labels`
+                          : "Add label"}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent side="bottom" align="start" className="w-80 p-3">
+                      <Input
+                        value={issueLabels}
+                        onChange={(e) => setIssueLabels(e.target.value)}
+                        placeholder="bug, customer, sprint"
+                      />
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Enter comma-separated labels
+                      </p>
+                    </PopoverContent>
+                  </Popover>
+
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted"
+                      >
+                        <UserRound className="h-4 w-4" />
+                        {issueAssigneeId === "unassigned"
+                          ? "No assignees"
+                          : workspaceMembers?.find((member) => member.userId === issueAssigneeId)
+                              ?.name ?? "No assignees"}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent side="bottom" align="start" className="w-80 p-2">
+                      <button
+                        type="button"
+                        onClick={() => setIssueAssigneeId("unassigned")}
+                        className={cn(
+                          "flex w-full items-center rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted",
+                          issueAssigneeId === "unassigned" ? "bg-muted" : ""
+                        )}
+                      >
+                        Unassigned
+                      </button>
+                      <div className="mt-1 max-h-52 space-y-1 overflow-y-auto">
+                        {workspaceMembers?.map((member) => (
+                          <button
+                            key={member.userId}
+                            type="button"
+                            onClick={() => setIssueAssigneeId(member.userId)}
+                            className={cn(
+                              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted",
+                              issueAssigneeId === member.userId ? "bg-muted" : ""
+                            )}
+                          >
+                            <Avatar className="h-6 w-6">
+                              <AvatarImage src={member.avatarUrl ?? undefined} />
+                              <AvatarFallback className="text-[10px]">
+                                {member.name.charAt(0).toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="min-w-0">
+                              <div className="truncate text-sm">{member.name}</div>
+                              <div className="truncate text-xs text-muted-foreground">
+                                {member.email}
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted"
+                      >
+                        <Globe className="h-4 w-4" />
+                        {issueBoardIds.length === 0
+                          ? "Select boards"
+                          : `${issueBoardIds.length} board${issueBoardIds.length === 1 ? "" : "s"}`}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent side="bottom" align="start" className="w-80 p-2">
+                      <div className="max-h-56 space-y-1 overflow-y-auto">
+                        {boards?.map((board) => {
+                          const selected = issueBoardIds.includes(board.id)
+                          return (
+                            <label
+                              key={board.id}
+                              className={cn(
+                                "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted",
+                                selected ? "bg-muted" : ""
+                              )}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={(e) => {
+                                  setIssueBoardIds((prev) => {
+                                    if (e.target.checked) return [...prev, board.id]
+                                    return prev.filter((id) => id !== board.id)
+                                  })
+                                }}
+                                className="h-4 w-4"
+                              />
+                              <span>{board.name}</span>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                <Separator className="my-4" />
+
+                <p className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                  Description
+                </p>
+                <Textarea
+                  value={issueDescription}
+                  onChange={(e) => setIssueDescription(e.target.value)}
+                  placeholder="Write more details about this issue..."
+                  className="min-h-[260px] resize-none border px-3 py-3 text-base leading-relaxed"
+                />
+
+                {createIssue.error?.message && (
+                  <p className="mt-3 text-xs text-red-600">{createIssue.error.message}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="border-t px-6 py-3">
+              <div className="flex items-center justify-end">
+                <Button
+                  type="submit"
+                  disabled={
+                    createIssue.isPending || !issueTitle.trim() || issueBoardIds.length === 0
+                  }
+                >
+                  {createIssue.isPending ? "Creating..." : "Create Issue"}
+                </Button>
+              </div>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
