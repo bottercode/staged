@@ -1,6 +1,11 @@
 import { renameSession } from "@/server/agent/sessions"
+import { getAuthenticatedUserId } from "@/server/auth-user"
 
 export async function POST(req: Request) {
+  const userId = await getAuthenticatedUserId()
+  if (!userId) {
+    return Response.json({ ok: false, error: "Unauthorized" }, { status: 401 })
+  }
   const body = await req.json().catch(() => ({}))
   const conversationId =
     typeof body?.conversationId === "string" ? body.conversationId.trim() : ""
@@ -13,7 +18,6 @@ export async function POST(req: Request) {
     )
   }
 
-  await renameSession(conversationId, title)
+  await renameSession(userId, conversationId, title)
   return Response.json({ ok: true })
 }
-

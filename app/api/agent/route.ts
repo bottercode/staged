@@ -5,6 +5,7 @@ import { runAgentStream } from "@/server/agent/agent-runner"
 import { logConversationEvent } from "@/server/agent/history"
 import { estimateInputUsage, estimateRunCost } from "@/server/agent/cost"
 import { touchSession } from "@/server/agent/sessions"
+import { getAuthenticatedUserId } from "@/server/auth-user"
 
 const CLAUDE_CLI_ALIASES = new Set(["sonnet", "opus", "haiku"])
 const OPENAI_PREFIXES = [
@@ -27,6 +28,101 @@ type ProviderApiKeys = {
   googleApiKey?: string
   mistralApiKey?: string
   xaiApiKey?: string
+}
+
+type SelectedTask = {
+  id: string
+  title: string
+  description?: string | null
+  priority?: string | null
+  dueDate?: string | Date | null
+  boardName?: string | null
+  columnName?: string | null
+  assigneeName?: string | null
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function normalizeSelectedTasks(value: unknown): SelectedTask[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((item) => isRecord(item))
+    .map((item) => ({
+      id: typeof item.id === "string" ? item.id : "",
+      title: typeof item.title === "string" ? item.title : "",
+      description:
+        typeof item.description === "string" || item.description === null
+          ? item.description
+          : null,
+      priority: typeof item.priority === "string" ? item.priority : null,
+      dueDate:
+        typeof item.dueDate === "string" ||
+        item.dueDate instanceof Date ||
+        item.dueDate === null
+          ? item.dueDate
+          : null,
+      boardName: typeof item.boardName === "string" ? item.boardName : null,
+      columnName: typeof item.columnName === "string" ? item.columnName : null,
+      assigneeName:
+        typeof item.assigneeName === "string" ? item.assigneeName : null,
+    }))
+    .filter((item) => item.id && item.title)
+    .slice(0, 20)
+}
+
+function buildTaskContext(selectedTasks: SelectedTask[]) {
+  if (selectedTasks.length === 0) return ""
+  const lines = selectedTasks.map((task, index) => {
+    const meta = [
+      task.boardName ? `board=${task.boardName}` : null,
+      task.columnName ? `status=${task.columnName}` : null,
+      task.priority ? `priority=${task.priority}` : null,
+      task.assigneeName ? `assignee=${task.assigneeName}` : null,
+      task.dueDate ? `due=${String(task.dueDate)}` : null,
+    ]
+      .filter(Boolean)
+      .join(", ")
+    return `${index + 1}. ${task.title}${meta ? ` [${meta}]` : ""}${
+      task.description ? `\n   ${task.description}` : ""
+    }`
+  })
+
+  return `\n\nUse this live task-board context from Staged (already fetched by the app). Treat it as authoritative project task data. Do not say you cannot access the task board for these selected items.\n\nSelected tasks:\n${lines.join("\n")}\n`
+}
+
+function injectTaskContextIntoMessages(messages: unknown, context: string) {
+  if (!Array.isArray(messages) || !context) return messages
+  const next = [...messages]
+
+  for (let i = next.length - 1; i >= 0; i--) {
+    const message = next[i]
+    if (!isRecord(message) || message.role !== "user") continue
+
+    if (Array.isArray(message.parts)) {
+      next[i] = {
+        ...message,
+        parts: [...message.parts, { type: "text", text: context }],
+      }
+      return next
+    }
+
+    if (typeof message.content === "string") {
+      next[i] = {
+        ...message,
+        content: `${message.content}${context}`,
+      }
+      return next
+    }
+  }
+
+  next.push({
+    id: randomUUID(),
+    role: "user",
+    parts: [{ type: "text", text: context }],
+  })
+  return next
 }
 
 function normalizeModelId(modelId: unknown): string | undefined {
@@ -129,6 +225,11 @@ function errorStream(message: string) {
 }
 
 export async function POST(req: Request) {
+  const userId = await getAuthenticatedUserId()
+  if (!userId) {
+    return errorStream("Unauthorized. Please sign in again.")
+  }
+
   const {
     messages,
     projectPath,
@@ -137,7 +238,11 @@ export async function POST(req: Request) {
     permissionMode,
     backend,
     providerApiKeys,
+    selectedTasks,
   } = await req.json()
+  const normalizedSelectedTasks = normalizeSelectedTasks(selectedTasks)
+  const taskContext = buildTaskContext(normalizedSelectedTasks)
+  const preparedMessages = injectTaskContextIntoMessages(messages, taskContext)
   const normalizedConversationId =
     typeof conversationId === "string" && conversationId.trim()
       ? conversationId.trim()
@@ -162,16 +267,19 @@ export async function POST(req: Request) {
     return errorStream(apiKeyError(resolvedProvider))
   }
 
-  void logConversationEvent(normalizedConversationId, "turn_start", {
+  void logConversationEvent(userId, normalizedConversationId, "turn_start", {
     modelId: normalizedModelId,
     provider: resolvedProvider,
     backend: backend ?? "auto",
     projectPath: typeof projectPath === "string" ? projectPath : null,
   })
-  void touchSession(normalizedConversationId)
+  void touchSession(userId, normalizedConversationId, {
+    projectPath: typeof projectPath === "string" ? projectPath : null,
+    modelId: normalizedModelId,
+  })
 
   const selectedBackend = (backend ?? "auto") as string
-  const inputUsage = estimateInputUsage((messages || []) as unknown[])
+  const inputUsage = estimateInputUsage((preparedMessages || []) as unknown[])
 
   const shouldUseCliRunner =
     Boolean(projectPath) &&
@@ -197,7 +305,7 @@ export async function POST(req: Request) {
 
           const result = await runAgentStream(
             {
-              messages,
+              messages: preparedMessages,
               projectPath,
               modelId: getModelWithoutProviderPrefix(normalizedModelId),
               conversationId: normalizedConversationId,
@@ -220,7 +328,7 @@ export async function POST(req: Request) {
                 })
               },
               onStatus: (status) => {
-                void logConversationEvent(normalizedConversationId, "status", {
+                void logConversationEvent(userId, normalizedConversationId, "status", {
                   status,
                 })
                 writer.write({
@@ -231,6 +339,7 @@ export async function POST(req: Request) {
               },
               onToolInput: (toolCallId, toolName, input) => {
                 void logConversationEvent(
+                  userId,
                   normalizedConversationId,
                   "tool_input",
                   {
@@ -247,6 +356,7 @@ export async function POST(req: Request) {
               },
               onToolOutput: (toolCallId, output) => {
                 void logConversationEvent(
+                  userId,
                   normalizedConversationId,
                   "tool_output",
                   {
@@ -274,7 +384,7 @@ export async function POST(req: Request) {
             writer.write({ type: "text-delta", id, delta: result.finalText })
           }
 
-          void logConversationEvent(normalizedConversationId, "turn_finish", {
+          void logConversationEvent(userId, normalizedConversationId, "turn_finish", {
             isError: result.isError,
             retryCount: result.retryCount,
             emittedTextLength: emittedText.length || result.emittedTextLength,
@@ -298,7 +408,7 @@ export async function POST(req: Request) {
         } catch (error) {
           const errorText =
             error instanceof Error ? error.message : "Unknown error"
-          void logConversationEvent(normalizedConversationId, "turn_error", {
+          void logConversationEvent(userId, normalizedConversationId, "turn_error", {
             errorText,
           })
           writer.write({ type: "start" })
@@ -320,6 +430,7 @@ export async function POST(req: Request) {
 
   try {
     const engine = new QueryEngine({
+      userId,
       projectPath: projectPath || null,
       modelId: normalizedModelId,
       providerApiKeys: keys,
@@ -330,8 +441,8 @@ export async function POST(req: Request) {
           : "edit",
     })
 
-    const response = await engine.run(messages)
-    void logConversationEvent(normalizedConversationId, "turn_finish", {
+    const response = await engine.run(preparedMessages)
+    void logConversationEvent(userId, normalizedConversationId, "turn_finish", {
       isError: false,
       backend: "query_engine",
       usage: estimateRunCost({
@@ -342,7 +453,7 @@ export async function POST(req: Request) {
     })
     return response
   } catch (error) {
-    void logConversationEvent(normalizedConversationId, "turn_error", {
+    void logConversationEvent(userId, normalizedConversationId, "turn_error", {
       error: error instanceof Error ? error.message : "Unknown error",
     })
     return errorStream(error instanceof Error ? error.message : "Unknown error")

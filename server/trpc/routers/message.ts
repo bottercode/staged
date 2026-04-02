@@ -1,11 +1,9 @@
 import { z } from "zod"
+import { TRPCError } from "@trpc/server"
 import { router, publicProcedure } from "../trpc"
 import {
   messages,
   users,
-  channels,
-  directMessageRooms,
-  directMessageMembers,
 } from "../../db/schema"
 import { eq, and, isNull, desc, asc, sql, count, inArray } from "drizzle-orm"
 
@@ -91,7 +89,44 @@ export const messageRouter = router({
         .orderBy(asc(messages.createdAt))
         .limit(input.limit)
 
-      return rows
+      const parentIds = rows.map((row) => row.id)
+      const replyPreviewByParent = new Map<
+        string,
+        Array<{ id: string; name: string; avatarUrl: string | null }>
+      >()
+
+      if (parentIds.length > 0) {
+        const replyRows = await ctx.db
+          .select({
+            parentId: messages.parentId,
+            userId: users.id,
+            userName: users.name,
+            userAvatar: users.avatarUrl,
+            createdAt: messages.createdAt,
+          })
+          .from(messages)
+          .innerJoin(users, eq(messages.userId, users.id))
+          .where(inArray(messages.parentId, parentIds))
+          .orderBy(desc(messages.createdAt))
+
+        for (const reply of replyRows) {
+          if (!reply.parentId) continue
+          const existing = replyPreviewByParent.get(reply.parentId) ?? []
+          if (existing.some((user) => user.id === reply.userId)) continue
+          if (existing.length >= 4) continue
+          existing.push({
+            id: reply.userId,
+            name: reply.userName,
+            avatarUrl: reply.userAvatar,
+          })
+          replyPreviewByParent.set(reply.parentId, existing)
+        }
+      }
+
+      return rows.map((row) => ({
+        ...row,
+        replyPreviewUsers: replyPreviewByParent.get(row.id) ?? [],
+      }))
     }),
 
   send: publicProcedure
@@ -166,5 +201,63 @@ export const messageRouter = router({
         .orderBy(asc(messages.createdAt))
 
       return { parent, replies }
+    }),
+
+  delete: publicProcedure
+    .input(
+      z.object({
+        messageId: z.string().uuid(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.userId) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Authentication required",
+        })
+      }
+
+      const [target] = await ctx.db
+        .select({
+          id: messages.id,
+          userId: messages.userId,
+          parentId: messages.parentId,
+          channelId: messages.channelId,
+          dmRoomId: messages.dmRoomId,
+        })
+        .from(messages)
+        .where(eq(messages.id, input.messageId))
+        .limit(1)
+
+      if (!target) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Message not found",
+        })
+      }
+
+      if (target.userId !== ctx.userId) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You can only delete your own messages",
+        })
+      }
+
+      await ctx.db.delete(messages).where(eq(messages.id, input.messageId))
+
+      if (target.parentId) {
+        await ctx.db
+          .update(messages)
+          .set({ replyCount: sql`GREATEST(${messages.replyCount} - 1, 0)` })
+          .where(eq(messages.id, target.parentId))
+      }
+
+      return {
+        ok: true,
+        deletedId: target.id,
+        channelId: target.channelId,
+        dmRoomId: target.dmRoomId,
+        parentId: target.parentId,
+      }
     }),
 })

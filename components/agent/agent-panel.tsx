@@ -18,10 +18,9 @@ import {
   GitBranch,
   ArrowRight,
   Sparkles,
-  Zap,
   FileText,
-  Code2,
   Plus,
+  Check,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -36,9 +35,9 @@ import { Input } from "@/components/ui/input"
 import { BridgeTransport } from "@/lib/agent/transport"
 import {
   readAgentSettings,
-  writeAgentSettings,
   type AgentProviderApiKeys,
 } from "@/lib/agent-settings"
+import { readSelectedWorkspaceId } from "@/lib/workspace-selection"
 
 // ── Types ────────────────────────────────────────────────
 
@@ -76,6 +75,17 @@ type AgentMessagePart = {
   }
   data?: unknown
   errorText?: string
+}
+
+type AgentTaskItem = {
+  id: string
+  title: string
+  description: string | null
+  priority: string | null
+  dueDate: string | null
+  boardName: string | null
+  columnName: string | null
+  assigneeName: string | null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -160,6 +170,15 @@ function getToolSummary(
 }
 
 // ── Tool call block (collapsible) ────────────────────────
+
+const SPINNER_VERBS = [
+  "Basting", "Bubbling", "Calibrating", "Clarifying", "Conjuring", "Decanting", "Decoding", "Decocting", "Distilling", "Enkindling", "Extrapolating", "Fiddling", "Fomenting", "Frying", "Galvanizing", "Glazing", "Grating", "Interpolating", "Invoking", "Juggling", "Macerating", "Mashing", "Poaching", "Rendering", "Roasting", "Scaffolding", "Sculpting", "Sizzling", "Smelting", "Stirring", "Stitching", "Torching", "Unspooling", "Weaving", "Welding", "Zapping"
+];
+
+const FINISHED_VERBS = [
+  "Basted", "Bubbled", "Calibrated", "Clarified", "Conjured", "Decanted", "Decoded", "Decocted", "Distilled", "Enkindled", "Extrapolated", "Fiddled", "Fomented", "Fried", "Galvanized", "Glazed", "Grated", "Interpolated", "Invoked", "Juggled", "Macerated", "Mashed", "Poached", "Rendered", "Roasted", "Scaffolded", "Sculpted", "Sizzled", "Smelted", "Stirred", "Stitched", "Torched", "Unspooled", "Woven", "Welded", "Zapped"
+];
+
 
 function ToolCallBlock({
   toolName,
@@ -283,68 +302,27 @@ function AgentThinkingBlock({ text }: { text: string }) {
   )
 }
 
-// ── Recent folders helpers ───────────────────────────────
-
-const RECENT_KEY = "staged-agent-recent"
-
-function getRecentFolders(): string[] {
-  if (typeof window === "undefined") return []
-  try {
-    return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]")
-  } catch {
-    return []
-  }
-}
-
-function addRecentFolder(path: string) {
-  const recent = getRecentFolders().filter((p) => p !== path)
-  recent.unshift(path)
-  localStorage.setItem(RECENT_KEY, JSON.stringify(recent.slice(0, 5)))
-}
-
-function removeRecentFolder(path: string) {
-  const recent = getRecentFolders().filter((p) => p !== path)
-  localStorage.setItem(RECENT_KEY, JSON.stringify(recent))
-}
-
-const AGENT_STATE_KEY = "staged-agent-state-v1"
+// ── Persisted agent UI state (DB-backed) ─────────────────
 
 type PersistedAgentSession = Session & {
   conversationId: string
   messages: UIMessage[]
 }
 
-type PersistedAgentState = {
-  projectPath: string | null
-  projectInfo: ProjectInfo | null
-  modelId: string
+type ProjectSessionBucket = {
   sessions: PersistedAgentSession[]
   currentSessionId: string
 }
 
-function readPersistedAgentState(): PersistedAgentState | null {
-  if (typeof window === "undefined") return null
-
-  try {
-    const raw = localStorage.getItem(AGENT_STATE_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as PersistedAgentState
-    if (
-      !parsed ||
-      !Array.isArray(parsed.sessions) ||
-      !parsed.currentSessionId
-    ) {
-      return null
-    }
-    return parsed
-  } catch {
-    return null
-  }
-}
-
-function writePersistedAgentState(state: PersistedAgentState) {
-  if (typeof window === "undefined") return
-  localStorage.setItem(AGENT_STATE_KEY, JSON.stringify(state))
+type PersistedAgentState = {
+  projectPath: string | null
+  projectInfo: ProjectInfo | null
+  modelId: string
+  permissionMode: "edit" | "plan"
+  sessions: PersistedAgentSession[]
+  currentSessionId: string
+  recentFolders: string[]
+  projectSessionStore?: Record<string, ProjectSessionBucket>
 }
 
 // ── Model list ───────────────────────────────────────────
@@ -476,25 +454,125 @@ function ModelSelector({
   )
 }
 
-// ── Suggestion cards ─────────────────────────────────────
+function TaskSelector({
+  tasks,
+  selectedTaskIds,
+  onChange,
+}: {
+  tasks: AgentTaskItem[]
+  selectedTaskIds: string[]
+  onChange: (ids: string[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState("")
+  const [boardFilter, setBoardFilter] = useState<string>("all")
+  const ref = useRef<HTMLDivElement>(null)
 
-const SUGGESTIONS = [
-  {
-    icon: <Zap className="h-4 w-4" />,
-    title: "Build a feature",
-    desc: "Scaffold components, write logic, wire up APIs",
-  },
-  {
-    icon: <FileText className="h-4 w-4" />,
-    title: "Fix a bug",
-    desc: "Debug issues, trace errors, apply targeted fixes",
-  },
-  {
-    icon: <Code2 className="h-4 w-4" />,
-    title: "Explore codebase",
-    desc: "Understand architecture, find patterns, read code",
-  },
-]
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", handleClick)
+    return () => document.removeEventListener("mousedown", handleClick)
+  }, [])
+
+  const boardOptions = Array.from(
+    new Set(tasks.map((task) => task.boardName || "Unknown"))
+  ).sort()
+
+  const visibleTasks = tasks.filter((task) => {
+    if (boardFilter !== "all" && (task.boardName || "Unknown") !== boardFilter) {
+      return false
+    }
+    const q = query.trim().toLowerCase()
+    if (!q) return true
+    return (
+      task.title.toLowerCase().includes(q) ||
+      (task.description || "").toLowerCase().includes(q) ||
+      (task.boardName || "").toLowerCase().includes(q) ||
+      (task.columnName || "").toLowerCase().includes(q)
+    )
+  })
+
+  const toggleTask = (id: string) => {
+    if (selectedTaskIds.includes(id)) {
+      onChange(selectedTaskIds.filter((taskId) => taskId !== id))
+      return
+    }
+    onChange([...selectedTaskIds, id].slice(0, 20))
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((prev) => !prev)}
+        className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      >
+        <FileText className="h-3.5 w-3.5" />
+        Tasks
+        {selectedTaskIds.length > 0 ? (
+          <span className="rounded bg-primary/15 px-1 text-[10px] text-primary">
+            {selectedTaskIds.length}
+          </span>
+        ) : null}
+        <ChevronDown className="h-3 w-3" />
+      </button>
+      {open && (
+        <div className="absolute bottom-full left-0 z-50 mb-1 w-[340px] rounded-lg border bg-popover p-2 shadow-lg">
+          <select
+            value={boardFilter}
+            onChange={(e) => setBoardFilter(e.target.value)}
+            className="mb-2 h-8 w-full rounded-md border bg-background px-2 text-xs"
+          >
+            <option value="all">All boards</option>
+            {boardOptions.map((boardName) => (
+              <option key={boardName} value={boardName}>
+                {boardName}
+              </option>
+            ))}
+          </select>
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search tasks..."
+            className="h-8 text-xs"
+          />
+          <div className="mt-2 max-h-64 space-y-1 overflow-y-auto">
+            {visibleTasks.length === 0 ? (
+              <p className="px-2 py-4 text-xs text-muted-foreground">No tasks found</p>
+            ) : (
+              visibleTasks.map((task) => {
+                const checked = selectedTaskIds.includes(task.id)
+                return (
+                  <button
+                    key={task.id}
+                    onClick={() => toggleTask(task.id)}
+                    className={cn(
+                      "flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
+                      checked ? "bg-muted" : "hover:bg-muted/60"
+                    )}
+                  >
+                    <span className="mt-0.5 text-muted-foreground">
+                      {checked ? <Check className="h-3.5 w-3.5" /> : <span className="inline-block h-3.5 w-3.5 rounded border" />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium text-foreground">
+                        {task.title}
+                      </span>
+                      <span className="block truncate text-muted-foreground">
+                        {[task.boardName, task.columnName].filter(Boolean).join(" • ")}
+                      </span>
+                    </span>
+                  </button>
+                )
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ── Folder browser dialog ────────────────────────────────
 
@@ -666,23 +744,16 @@ function FolderBrowserDialog({
 
 function ConnectScreen({
   onConnect,
-  modelId,
-  onModelChange,
+  recentFolders,
+  onRemoveRecentFolder,
 }: {
   onConnect: (path: string, info: ProjectInfo) => void
-  modelId: string
-  onModelChange: (id: string) => void
+  recentFolders: string[]
+  onRemoveRecentFolder: (path: string) => void
 }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [recentFolders, setRecentFolders] = useState<string[]>([])
   const [showBrowser, setShowBrowser] = useState(false)
-  const [isMounted, setIsMounted] = useState(false)
-
-  useEffect(() => {
-    setIsMounted(true)
-    setRecentFolders(getRecentFolders())
-  }, [])
 
   const connect = async (dirPath: string) => {
     setLoading(true)
@@ -699,7 +770,6 @@ function ConnectScreen({
         setLoading(false)
         return
       }
-      addRecentFolder(data.path)
       onConnect(data.path, data)
     } catch {
       setError("Failed to validate path")
@@ -710,7 +780,7 @@ function ConnectScreen({
   return (
     <div className="flex h-full w-full flex-col bg-background">
       {/* Center content */}
-      <div className="flex flex-1 flex-col items-center justify-center px-8 pb-32">
+      <div className="flex flex-1 flex-col items-center justify-center px-8">
         {/* Icon */}
         <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl border bg-muted">
           <Sparkles className="h-7 w-7 text-foreground/70" />
@@ -735,7 +805,7 @@ function ConnectScreen({
           {error && <p className="text-xs text-destructive">{error}</p>}
 
           {/* Recent folders as quick-connect chips */}
-          {isMounted && recentFolders.length > 0 && (
+          {recentFolders.length > 0 && (
             <div className="flex flex-wrap justify-center gap-2">
               {recentFolders.map((folder) => {
                 const name = folder.split("/").pop() || folder
@@ -752,8 +822,7 @@ function ConnectScreen({
                       role="button"
                       onClick={(e) => {
                         e.stopPropagation()
-                        removeRecentFolder(folder)
-                        setRecentFolders(getRecentFolders())
+                        onRemoveRecentFolder(folder)
                       }}
                       className="ml-0.5 opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive"
                     >
@@ -765,59 +834,6 @@ function ConnectScreen({
             </div>
           )}
         </div>
-      </div>
-
-      {/* Suggestion cards */}
-      <div className="px-6 pb-4">
-        <div className="grid grid-cols-3 gap-3">
-          {SUGGESTIONS.map((s) => (
-            <button
-              key={s.title}
-              onClick={() => setShowBrowser(true)}
-              className="group rounded-xl border bg-card p-4 text-left transition-all hover:bg-accent"
-            >
-              <div className="mb-2 text-muted-foreground transition-colors group-hover:text-foreground">
-                {s.icon}
-              </div>
-              <p className="text-sm font-medium text-foreground">{s.title}</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">{s.desc}</p>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Bottom input bar — Codex style */}
-      <div className="px-6 pb-4">
-        <div className="rounded-2xl border bg-muted/30">
-          <div className="px-4 pt-3 pb-2">
-            <input
-              type="text"
-              placeholder="Ask Staged AI anything..."
-              className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-              disabled
-            />
-          </div>
-          <div className="flex items-center gap-1 px-3 pb-3">
-            <button
-              onClick={() => setShowBrowser(true)}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
-            <ModelSelector value={modelId} onChange={onModelChange} />
-            <div className="ml-auto">
-              <button
-                disabled
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground opacity-40"
-              >
-                <ArrowRight className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        </div>
-        <p className="mt-2 text-center text-[10px] text-muted-foreground/60">
-          Connect a project folder to start coding
-        </p>
       </div>
 
       {/* Folder browser dialog */}
@@ -854,9 +870,17 @@ export function AgentPanel() {
     {}
   )
   const [permissionMode, setPermissionMode] = useState<"edit" | "plan">("edit")
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
+    null
+  )
+  const [availableTasks, setAvailableTasks] = useState<AgentTaskItem[]>([])
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([])
   const [gitBranch, setGitBranch] = useState<string | null>(null)
   const [runtimeStatus, setRuntimeStatus] = useState<string | null>(null)
   const [estimatedCostUsd, setEstimatedCostUsd] = useState<number | null>(null)
+  const [recentFolders, setRecentFolders] = useState<string[]>([])
+  const [showSwitchBrowser, setShowSwitchBrowser] = useState(false)
+  const [showSwitchRepoDialog, setShowSwitchRepoDialog] = useState(false)
   const [sessionEditDialog, setSessionEditDialog] = useState<{
     open: boolean
     mode: "rename" | "tag"
@@ -870,10 +894,15 @@ export function AgentPanel() {
   const [currentSessionId, setCurrentSessionId] = useState<string>(
     initialSession.id
   )
+  const [projectSessionStore, setProjectSessionStore] = useState<
+    Record<string, ProjectSessionBucket>
+  >({})
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const hydratingSessionRef = useRef(false)
   const hydratedFromStorageRef = useRef(false)
+  const persistTimeoutRef = useRef<number | null>(null)
+  const clearAttachedTasksOnFinishRef = useRef(false)
 
   const activeSession = useMemo(
     () =>
@@ -883,6 +912,53 @@ export function AgentPanel() {
   )
 
   const activeConversationId = activeSession?.conversationId ?? ""
+  const selectedTasks = useMemo(
+    () => availableTasks.filter((task) => selectedTaskIds.includes(task.id)),
+    [availableTasks, selectedTaskIds]
+  )
+  const linkedRepos = useMemo(() => {
+    const set = new Set<string>()
+    if (projectPath) set.add(projectPath)
+    for (const folder of recentFolders) set.add(folder)
+    for (const folder of Object.keys(projectSessionStore)) set.add(folder)
+    return Array.from(set)
+  }, [projectPath, recentFolders, projectSessionStore])
+
+  const switchProjectContext = useCallback(
+    (nextProjectPath: string, nextProjectInfo: ProjectInfo) => {
+      setProjectSessionStore((prev) => {
+        const nextStore = { ...prev }
+        if (projectPath) {
+          nextStore[projectPath] = {
+            sessions,
+            currentSessionId,
+          }
+        }
+
+        const existing = nextStore[nextProjectPath]
+        if (existing && existing.sessions.length > 0) {
+          setSessions(existing.sessions)
+          const exists = existing.sessions.some(
+            (session) => session.id === existing.currentSessionId
+          )
+          setCurrentSessionId(
+            exists ? existing.currentSessionId : existing.sessions[0].id
+          )
+        } else {
+          const first = createSession("Chat 1")
+          setSessions([first])
+          setCurrentSessionId(first.id)
+        }
+        return nextStore
+      })
+
+      setProjectPath(nextProjectPath)
+      setProjectInfo(nextProjectInfo)
+      setInput("")
+      setSelectedTaskIds([])
+    },
+    [projectPath, sessions, currentSessionId]
+  )
 
   const transport = useMemo(
     () =>
@@ -906,6 +982,41 @@ export function AgentPanel() {
     }
   }, [activeConversationId, setMessages])
   const isLoading = status === "streaming" || status === "submitted"
+
+  const [loadingVerb, setLoadingVerb] = useState(() => SPINNER_VERBS[0])
+  const [responseStats, setResponseStats] = useState<{
+    startTime: number | null
+    endTime: number | null
+    finishedVerb: string | null
+  }>({ startTime: null, endTime: null, finishedVerb: null })
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setResponseStats({ startTime: null, endTime: null, finishedVerb: null })
+  }, [activeConversationId])
+
+  useEffect(() => {
+    if (!isLoading) {
+      if (clearAttachedTasksOnFinishRef.current) {
+        clearAttachedTasksOnFinishRef.current = false
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setSelectedTaskIds([])
+      }
+      setResponseStats(prev => {
+        if (!prev.startTime || prev.endTime) return prev
+        const finishedIdx = Math.floor(Math.random() * FINISHED_VERBS.length)
+        return { ...prev, endTime: Date.now(), finishedVerb: FINISHED_VERBS[finishedIdx] }
+      })
+      return
+    }
+    setResponseStats(prev => ({ ...prev, startTime: prev.startTime || Date.now(), endTime: null, finishedVerb: null }))
+    setLoadingVerb(SPINNER_VERBS[Math.floor(Math.random() * SPINNER_VERBS.length)])
+    const interval = setInterval(() => {
+      setLoadingVerb(SPINNER_VERBS[Math.floor(Math.random() * SPINNER_VERBS.length)])
+    }, 3000)
+    return () => clearInterval(interval)
+  }, [isLoading])
+
 
   // Load session messages when switching tabs
   useEffect(() => {
@@ -1127,25 +1238,114 @@ export function AgentPanel() {
   useEffect(() => {
     if (hydratedFromStorageRef.current) return
     hydratedFromStorageRef.current = true
+    let disposed = false
+    const hydrate = async () => {
+      try {
+        const res = await fetch("/api/agent/state")
+        if (!res.ok) return
+        const data = (await res.json()) as {
+          state?: PersistedAgentState | null
+        }
+        const persisted = data.state
+        if (disposed || !persisted) return
+        setProjectPath(persisted.projectPath ?? null)
+        setProjectInfo(persisted.projectInfo ?? null)
+        setModelId(persisted.modelId || "anthropic:sonnet")
+        setPermissionMode(
+          persisted.permissionMode === "plan" ? "plan" : "edit"
+        )
+        setRecentFolders(
+          Array.isArray(persisted.recentFolders)
+            ? persisted.recentFolders.filter((value) => typeof value === "string")
+            : []
+        )
+        const store = persisted.projectSessionStore ?? {}
+        const nextStore: Record<string, ProjectSessionBucket> = { ...store }
+        if (
+          persisted.projectPath &&
+          Array.isArray(persisted.sessions) &&
+          persisted.sessions.length > 0
+        ) {
+          nextStore[persisted.projectPath] = {
+            sessions: persisted.sessions,
+            currentSessionId: persisted.currentSessionId,
+          }
+        }
+        setProjectSessionStore(nextStore)
 
-    const persisted = readPersistedAgentState()
-    if (!persisted) return
-
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setProjectPath(persisted.projectPath)
-    setProjectInfo(persisted.projectInfo)
-    setModelId(persisted.modelId || "anthropic:sonnet")
-
-    if (persisted.sessions.length > 0) {
-      setSessions(persisted.sessions)
-      const exists = persisted.sessions.some(
-        (session) => session.id === persisted.currentSessionId
-      )
-      setCurrentSessionId(
-        exists ? persisted.currentSessionId : persisted.sessions[0].id
-      )
+        if (persisted.projectPath && nextStore[persisted.projectPath]) {
+          const bucket = nextStore[persisted.projectPath]
+          if (bucket.sessions.length > 0) {
+            setSessions(bucket.sessions)
+            const exists = bucket.sessions.some(
+              (session) => session.id === bucket.currentSessionId
+            )
+            setCurrentSessionId(
+              exists ? bucket.currentSessionId : bucket.sessions[0].id
+            )
+          }
+        } else if (Array.isArray(persisted.sessions) && persisted.sessions.length > 0) {
+          setSessions(persisted.sessions)
+          const exists = persisted.sessions.some(
+            (session) => session.id === persisted.currentSessionId
+          )
+          setCurrentSessionId(
+            exists ? persisted.currentSessionId : persisted.sessions[0].id
+          )
+        }
+      } catch {
+        // ignore hydration failures
+      }
+    }
+    void hydrate()
+    return () => {
+      disposed = true
     }
   }, [])
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelectedWorkspaceId(readSelectedWorkspaceId())
+    const onStorage = () => {
+      setSelectedWorkspaceId(readSelectedWorkspaceId())
+    }
+    window.addEventListener("storage", onStorage)
+    return () => window.removeEventListener("storage", onStorage)
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadTasks() {
+      if (!selectedWorkspaceId) {
+        if (!cancelled) setAvailableTasks([])
+        return
+      }
+      try {
+        const res = await fetch(
+          `/api/agent/tasks?workspaceId=${encodeURIComponent(
+            selectedWorkspaceId
+          )}`
+        )
+        const data = (await res.json()) as { tasks?: AgentTaskItem[] }
+        if (!cancelled) {
+          const nextTasks = Array.isArray(data.tasks) ? data.tasks : []
+          setAvailableTasks(nextTasks)
+          setSelectedTaskIds((prev) =>
+            prev.filter((id) => nextTasks.some((task) => task.id === id))
+          )
+        }
+      } catch {
+        if (!cancelled) {
+          setAvailableTasks([])
+          setSelectedTaskIds([])
+        }
+      }
+    }
+    void loadTasks()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedWorkspaceId])
 
   useEffect(() => {
     let disposed = false
@@ -1187,20 +1387,49 @@ export function AgentPanel() {
   useEffect(() => {
     if (!hydratedFromStorageRef.current) return
     if (!activeSession) return
+    if (persistTimeoutRef.current) {
+      window.clearTimeout(persistTimeoutRef.current)
+    }
+    persistTimeoutRef.current = window.setTimeout(() => {
+      const nextStore = { ...projectSessionStore }
+      if (projectPath) {
+        nextStore[projectPath] = {
+          sessions,
+          currentSessionId,
+        }
+      }
+      const state: PersistedAgentState = {
+        projectPath,
+        projectInfo,
+        modelId,
+        permissionMode,
+        sessions,
+        currentSessionId,
+        recentFolders,
+        projectSessionStore: nextStore,
+      }
+      fetch("/api/agent/state", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ state }),
+      }).catch(() => {})
+    }, 350)
 
-    writePersistedAgentState({
-      projectPath,
-      projectInfo,
-      modelId,
-      sessions,
-      currentSessionId,
-    })
+    return () => {
+      if (persistTimeoutRef.current) {
+        window.clearTimeout(persistTimeoutRef.current)
+        persistTimeoutRef.current = null
+      }
+    }
   }, [
     projectPath,
     projectInfo,
     modelId,
+    permissionMode,
     sessions,
     currentSessionId,
+    recentFolders,
+    projectSessionStore,
     activeSession,
   ])
 
@@ -1263,7 +1492,6 @@ export function AgentPanel() {
     const updateSettings = () => {
       const settings = readAgentSettings()
       setProviderApiKeys(settings.providerApiKeys)
-      setPermissionMode(settings.permissionMode)
     }
     updateSettings()
     window.addEventListener("staged-agent-settings-updated", updateSettings)
@@ -1314,6 +1542,9 @@ export function AgentPanel() {
 
     setInput("")
     setPastedImage(null)
+    if (selectedTasks.length > 0) {
+      clearAttachedTasksOnFinishRef.current = true
+    }
 
     sendMessage(
       { parts },
@@ -1325,6 +1556,7 @@ export function AgentPanel() {
           backend: "auto",
           providerApiKeys,
           permissionMode,
+          selectedTasks,
         },
       }
     )
@@ -1341,6 +1573,7 @@ export function AgentPanel() {
     activeSession?.conversationId,
     providerApiKeys,
     permissionMode,
+    selectedTasks,
   ])
 
   const handleAbort = useCallback(() => {
@@ -1361,6 +1594,18 @@ export function AgentPanel() {
   }
 
   const handleDisconnect = () => {
+    const currentSessions = sessions.map((session) =>
+      session.id === currentSessionId ? { ...session, messages } : session
+    )
+    if (projectPath) {
+      setProjectSessionStore((prev) => ({
+        ...prev,
+        [projectPath]: {
+          sessions: currentSessions,
+          currentSessionId,
+        },
+      }))
+    }
     const firstSession = createSession("Chat 1")
     setProjectPath(null)
     setProjectInfo(null)
@@ -1370,16 +1615,38 @@ export function AgentPanel() {
     setInput("")
   }
 
+  const handleSwitchProject = useCallback(async (dirPath: string) => {
+    try {
+      const res = await fetch("/api/agent/validate-path", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: dirPath }),
+      })
+      const data: ProjectInfo = await res.json()
+      if (!data.valid) return
+      switchProjectContext(data.path, data)
+      setGitBranch(null)
+      setShowSwitchBrowser(false)
+      setRecentFolders((prev) =>
+        [data.path, ...prev.filter((entry) => entry !== data.path)].slice(0, 5)
+      )
+    } catch {
+      // ignore
+    }
+  }, [switchProjectContext])
+
   // ── Connect screen ──
   if (!projectPath) {
     return (
       <ConnectScreen
         onConnect={(path, info) => {
-          setProjectPath(path)
-          setProjectInfo(info)
+          switchProjectContext(path, info)
+          setRecentFolders((prev) => [path, ...prev.filter((p) => p !== path)].slice(0, 5))
         }}
-        modelId={modelId}
-        onModelChange={setModelId}
+        recentFolders={recentFolders}
+        onRemoveRecentFolder={(path) =>
+          setRecentFolders((prev) => prev.filter((entry) => entry !== path))
+        }
       />
     )
   }
@@ -1426,6 +1693,14 @@ export function AgentPanel() {
         )}
         <div className="ml-auto flex items-center gap-1">
           <button
+            onClick={() => setShowSwitchRepoDialog(true)}
+            className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            title="Switch project"
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+            Switch Repo
+          </button>
+          <button
             onClick={handleDisconnect}
             className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             title="Disconnect"
@@ -1434,6 +1709,66 @@ export function AgentPanel() {
           </button>
         </div>
       </div>
+
+      <Dialog open={showSwitchRepoDialog} onOpenChange={setShowSwitchRepoDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Switch Repository</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            {linkedRepos.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No linked repositories yet.</p>
+            ) : (
+              linkedRepos.map((repoPath) => {
+                const name = repoPath.split("/").pop() || repoPath
+                const isCurrent = repoPath === projectPath
+                return (
+                  <button
+                    key={repoPath}
+                    onClick={() => {
+                      setShowSwitchRepoDialog(false)
+                      void handleSwitchProject(repoPath)
+                    }}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-muted",
+                      isCurrent ? "border-primary/40 bg-primary/5" : ""
+                    )}
+                  >
+                    <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium">{name}</div>
+                      <div className="truncate text-xs text-muted-foreground">{repoPath}</div>
+                    </div>
+                    {isCurrent ? <Check className="h-4 w-4 text-primary" /> : null}
+                  </button>
+                )
+              })
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowSwitchRepoDialog(false)
+                setShowSwitchBrowser(true)
+              }}
+            >
+              Browse New Repo
+            </Button>
+            <Button variant="ghost" onClick={() => setShowSwitchRepoDialog(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <FolderBrowserDialog
+        open={showSwitchBrowser}
+        onClose={() => setShowSwitchBrowser(false)}
+        onSelect={(path) => {
+          void handleSwitchProject(path)
+        }}
+      />
 
       <SessionTabs
         sessions={sessions}
@@ -1687,12 +2022,19 @@ export function AgentPanel() {
             )
           })}
 
-          {isLoading && messages[messages.length - 1]?.role === "user" && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              <span>Thinking...</span>
+          {isLoading ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-4">
+              <Loader2 className="h-3 w-3 animate-spin text-primary/70" />
+              <span className="font-mono text-primary/70">{loadingVerb}...</span>
             </div>
-          )}
+          ) : responseStats.endTime && responseStats.startTime && messages.length > 0 ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-4">
+              <span className="h-2 w-2 rounded-full bg-green-500/80" />
+              <span className="font-mono text-green-600/80 dark:text-green-400/80">
+                {responseStats.finishedVerb}! ({( (responseStats.endTime - responseStats.startTime) / 1000 ).toFixed(1)}s)
+              </span>
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -1700,6 +2042,29 @@ export function AgentPanel() {
       <div className="px-4 pb-4">
         <div className="rounded-2xl border bg-muted/30">
           <div className="px-4 pt-3 pb-1">
+            {selectedTasks.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {selectedTasks.map((task) => (
+                  <span
+                    key={task.id}
+                    className="inline-flex max-w-[260px] items-center gap-1 rounded-md border bg-background/80 px-2 py-1 text-[11px]"
+                  >
+                    <span className="truncate">{task.title}</span>
+                    <button
+                      onClick={() =>
+                        setSelectedTaskIds((prev) =>
+                          prev.filter((id) => id !== task.id)
+                        )
+                      }
+                      className="text-muted-foreground hover:text-foreground"
+                      title="Remove task"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
             {pastedImage && (
               <div className="relative mb-2 h-24 w-24 rounded-md border">
                 <img
@@ -1737,16 +2102,16 @@ export function AgentPanel() {
               <Plus className="h-4 w-4" />
             </button>
             <ModelSelector value={modelId} onChange={setModelId} />
+            <TaskSelector
+              tasks={availableTasks}
+              selectedTaskIds={selectedTaskIds}
+              onChange={setSelectedTaskIds}
+            />
             <select
               value={permissionMode}
               onChange={(event) => {
                 const nextMode = event.target.value as "edit" | "plan"
                 setPermissionMode(nextMode)
-                const current = readAgentSettings()
-                writeAgentSettings({
-                  providerApiKeys: current.providerApiKeys,
-                  permissionMode: nextMode,
-                })
               }}
               className="h-7 rounded-md border bg-background px-2 text-xs text-muted-foreground"
               title="Permission mode"

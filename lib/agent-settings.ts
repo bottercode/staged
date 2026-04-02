@@ -12,12 +12,10 @@ export const AGENT_SETTINGS_STORAGE_KEY = "staged-agent-settings-v1"
 
 export type AgentSettings = {
   providerApiKeys: AgentProviderApiKeys
-  permissionMode: "edit" | "plan"
 }
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   providerApiKeys: {},
-  permissionMode: "edit",
 }
 
 export function readAgentSettings(): AgentSettings {
@@ -27,16 +25,12 @@ export function readAgentSettings(): AgentSettings {
     const raw = localStorage.getItem(AGENT_SETTINGS_STORAGE_KEY)
     if (!raw) return DEFAULT_AGENT_SETTINGS
     const parsed = JSON.parse(raw) as Partial<AgentSettings>
-    const rawMode = (parsed as { permissionMode?: string }).permissionMode
-    const mappedMode =
-      rawMode === "edit" || rawMode === "plan" ? rawMode : "edit"
 
     return {
       providerApiKeys: {
         ...DEFAULT_AGENT_SETTINGS.providerApiKeys,
         ...(parsed.providerApiKeys || {}),
       },
-      permissionMode: mappedMode,
     }
   } catch {
     return DEFAULT_AGENT_SETTINGS

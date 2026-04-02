@@ -5,8 +5,11 @@ import {
   boolean,
   uuid,
   integer,
+  jsonb,
+  index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core"
-import { relations } from "drizzle-orm"
+import { relations, sql } from "drizzle-orm"
 
 // ── Users ──────────────────────────────────────────────
 export const users = pgTable("users", {
@@ -38,6 +41,63 @@ export const workspacesRelations = relations(workspaces, ({ many }) => ({
   dmRooms: many(directMessageRooms),
 }))
 
+// ── Agent Persistence ───────────────────────────────────
+export const agentSessions = pgTable(
+  "agent_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id").notNull(),
+    title: text("title"),
+    tag: text("tag"),
+    projectPath: text("project_path"),
+    modelId: text("model_id"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    userConversationUnique: uniqueIndex("agent_sessions_user_conversation_uidx").on(
+      table.userId,
+      table.conversationId
+    ),
+    userUpdatedIdx: index("agent_sessions_user_updated_idx").on(
+      table.userId,
+      table.updatedAt
+    ),
+  })
+)
+
+export const agentEvents = pgTable(
+  "agent_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id").notNull(),
+    ts: timestamp("ts").defaultNow().notNull(),
+    type: text("type").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  },
+  (table) => ({
+    userConversationTsIdx: index("agent_events_user_conversation_ts_idx").on(
+      table.userId,
+      table.conversationId,
+      table.ts
+    ),
+  })
+)
+
+export const agentUserState = pgTable("agent_user_state", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  state: jsonb("state").$type<Record<string, unknown>>().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+})
+
 // ── Workspace Members ──────────────────────────────────
 export const workspaceMembers = pgTable("workspace_members", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -60,6 +120,61 @@ export const workspaceMembersRelations = relations(
     }),
     user: one(users, {
       fields: [workspaceMembers.userId],
+      references: [users.id],
+    }),
+  })
+)
+
+export const workspaceInviteLinks = pgTable("workspace_invite_links", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  token: text("token").notNull().unique(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdById: uuid("created_by_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+})
+
+export const workspaceInviteLinksRelations = relations(
+  workspaceInviteLinks,
+  ({ one }) => ({
+    workspace: one(workspaces, {
+      fields: [workspaceInviteLinks.workspaceId],
+      references: [workspaces.id],
+    }),
+    createdBy: one(users, {
+      fields: [workspaceInviteLinks.createdById],
+      references: [users.id],
+    }),
+  })
+)
+
+export const workspaceInvites = pgTable("workspace_invites", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  email: text("email").notNull(),
+  role: text("role").notNull().default("member"),
+  status: text("status").notNull().default("pending"),
+  invitedById: uuid("invited_by_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+})
+
+export const workspaceInvitesRelations = relations(
+  workspaceInvites,
+  ({ one }) => ({
+    workspace: one(workspaces, {
+      fields: [workspaceInvites.workspaceId],
+      references: [workspaces.id],
+    }),
+    invitedBy: one(users, {
+      fields: [workspaceInvites.invitedById],
       references: [users.id],
     }),
   })
@@ -261,6 +376,23 @@ export const tasks = pgTable("tasks", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   channelMessageId: uuid("channel_message_id"),
+  labels: text("labels")
+    .array()
+    .notNull()
+    .default(sql`'{}'::text[]`),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+})
+
+export const taskComments = pgTable("task_comments", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  taskId: uuid("task_id")
+    .notNull()
+    .references(() => tasks.id, { onDelete: "cascade" }),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  content: text("content").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 })
@@ -379,7 +511,7 @@ export const docsRelations = relations(docs, ({ one }) => ({
   }),
 }))
 
-export const tasksRelations = relations(tasks, ({ one }) => ({
+export const tasksRelations = relations(tasks, ({ one, many }) => ({
   board: one(boards, {
     fields: [tasks.boardId],
     references: [boards.id],
@@ -401,5 +533,17 @@ export const tasksRelations = relations(tasks, ({ one }) => ({
     fields: [tasks.createdById],
     references: [users.id],
     relationName: "createdTasks",
+  }),
+  comments: many(taskComments),
+}))
+
+export const taskCommentsRelations = relations(taskComments, ({ one }) => ({
+  task: one(tasks, {
+    fields: [taskComments.taskId],
+    references: [tasks.id],
+  }),
+  user: one(users, {
+    fields: [taskComments.userId],
+    references: [users.id],
   }),
 }))

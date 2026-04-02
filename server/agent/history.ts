@@ -1,42 +1,59 @@
-import fs from "fs/promises"
-import path from "path"
+import { and, asc, eq } from "drizzle-orm"
+import { db } from "@/server/db"
+import { agentEvents } from "@/server/db/schema"
 
-const HISTORY_DIR = path.join(process.cwd(), ".staged-agent", "history")
-
-type HistoryEvent = {
+export type HistoryEvent = {
   ts: string
   conversationId: string
   type: string
   payload: Record<string, unknown>
 }
 
-function sanitizeFileName(input: string) {
-  return input.replace(/[^a-zA-Z0-9._-]/g, "_")
-}
-
-async function appendHistoryEvent(event: HistoryEvent) {
-  await fs.mkdir(HISTORY_DIR, { recursive: true })
-  const filePath = path.join(
-    HISTORY_DIR,
-    `${sanitizeFileName(event.conversationId)}.jsonl`
-  )
-  await fs.appendFile(filePath, `${JSON.stringify(event)}\n`, "utf-8")
+function normalizePayload(payload: unknown): Record<string, unknown> {
+  if (typeof payload === "object" && payload !== null) {
+    return payload as Record<string, unknown>
+  }
+  return { value: payload }
 }
 
 export async function logConversationEvent(
+  userId: string,
   conversationId: string,
   type: string,
   payload: Record<string, unknown>
 ) {
   try {
-    await appendHistoryEvent({
-      ts: new Date().toISOString(),
+    await db.insert(agentEvents).values({
+      userId,
       conversationId,
       type,
-      payload,
+      payload: normalizePayload(payload),
+      ts: new Date(),
     })
   } catch {
     // Non-fatal: logging should never break the chat flow.
   }
 }
 
+export async function listConversationEvents(
+  userId: string,
+  conversationId: string
+): Promise<HistoryEvent[]> {
+  const rows = await db
+    .select()
+    .from(agentEvents)
+    .where(
+      and(
+        eq(agentEvents.userId, userId),
+        eq(agentEvents.conversationId, conversationId)
+      )
+    )
+    .orderBy(asc(agentEvents.ts))
+
+  return rows.map((row) => ({
+    ts: row.ts.toISOString(),
+    conversationId: row.conversationId,
+    type: row.type,
+    payload: normalizePayload(row.payload),
+  }))
+}

@@ -21,6 +21,53 @@ type Column = {
   tasks: TaskData[]
 }
 
+function moveTaskInColumns(params: {
+  columns: Column[]
+  taskId: string
+  sourceColumnId: string
+  sourceIndex: number
+  destinationColumnId: string
+  destinationIndex: number
+}): Column[] {
+  const {
+    columns,
+    taskId,
+    sourceColumnId,
+    sourceIndex,
+    destinationColumnId,
+    destinationIndex,
+  } = params
+
+  const next = columns.map((column) => ({
+    ...column,
+    tasks: [...column.tasks],
+  }))
+
+  const sourceColumn = next.find((column) => column.id === sourceColumnId)
+  const destinationColumn = next.find(
+    (column) => column.id === destinationColumnId
+  )
+  if (!sourceColumn || !destinationColumn) return columns
+
+  let task =
+    sourceColumn.tasks[sourceIndex]?.id === taskId
+      ? sourceColumn.tasks.splice(sourceIndex, 1)[0]
+      : undefined
+
+  if (!task) {
+    const idx = sourceColumn.tasks.findIndex((item) => item.id === taskId)
+    if (idx !== -1) {
+      task = sourceColumn.tasks.splice(idx, 1)[0]
+    }
+  }
+  if (!task) return columns
+
+  const safeIndex = Math.max(0, Math.min(destinationIndex, destinationColumn.tasks.length))
+  destinationColumn.tasks.splice(safeIndex, 0, task)
+
+  return next
+}
+
 const columnDotColors: Record<string, string> = {
   "To Do": "bg-red-400",
   "In Progress": "bg-blue-500",
@@ -36,29 +83,80 @@ export function BoardView({
   workspaceId: string
   columns: Column[]
 }) {
-  const [createInColumn, setCreateInColumn] = useState<string | null>(null)
+  const [createInColumn, setCreateInColumn] = useState<{
+    id: string
+    name: string
+  } | null>(null)
   const [selectedTask, setSelectedTask] = useState<TaskData | null>(null)
   const utils = trpc.useUtils()
-
-  const moveTask = trpc.task.move.useMutation({
-    onSuccess: () => utils.board.getById.invalidate({ id: boardId }),
-  })
+  const moveTask = trpc.task.move.useMutation()
 
   const handleDragEnd = (result: DropResult) => {
     if (!result.destination) return
 
-    const { draggableId, destination } = result
+    const { draggableId, source, destination } = result
+    if (
+      source.droppableId === destination.droppableId &&
+      source.index === destination.index
+    ) {
+      return
+    }
+
+    const allInput = { id: boardId, filterMode: "all" as const }
+    const activeInput = { id: boardId, filterMode: "active" as const }
+
+    const previousAll = utils.board.getById.getData(allInput)
+    const previousActive = utils.board.getById.getData(activeInput)
+
+    utils.board.getById.setData(allInput, (current) => {
+      if (!current) return current
+      return {
+        ...current,
+        columns: moveTaskInColumns({
+          columns: current.columns,
+          taskId: draggableId,
+          sourceColumnId: source.droppableId,
+          sourceIndex: source.index,
+          destinationColumnId: destination.droppableId,
+          destinationIndex: destination.index,
+        }),
+      }
+    })
+
+    utils.board.getById.setData(activeInput, (current) => {
+      if (!current) return current
+      return {
+        ...current,
+        columns: moveTaskInColumns({
+          columns: current.columns,
+          taskId: draggableId,
+          sourceColumnId: source.droppableId,
+          sourceIndex: source.index,
+          destinationColumnId: destination.droppableId,
+          destinationIndex: destination.index,
+        }),
+      }
+    })
+
     moveTask.mutate({
       id: draggableId,
       columnId: destination.droppableId,
       position: destination.index,
+    }, {
+      onError: () => {
+        utils.board.getById.setData(allInput, previousAll)
+        utils.board.getById.setData(activeInput, previousActive)
+      },
+      onSettled: () => {
+        utils.board.getById.invalidate({ id: boardId })
+      },
     })
   }
 
   return (
     <>
       <DragDropContext onDragEnd={handleDragEnd}>
-        <div className="flex flex-1 gap-6 overflow-x-auto p-6">
+        <div className="flex flex-1 gap-6 p-6">
           {columns.map((column) => {
             const dotColor =
               columnDotColors[column.name] ?? "bg-muted-foreground"
@@ -66,7 +164,7 @@ export function BoardView({
             return (
               <div
                 key={column.id}
-                className="flex w-80 flex-shrink-0 flex-col rounded-xl bg-neutral-100 dark:bg-neutral-900"
+                className="flex min-w-0 flex-1 flex-col rounded-xl bg-neutral-100 dark:bg-neutral-900"
               >
                 {/* Column header */}
                 <div className="flex items-center gap-2 px-4 pt-3 pb-2">
@@ -106,7 +204,13 @@ export function BoardView({
                             >
                               <TaskCard
                                 task={task}
-                                onClick={() => setSelectedTask(task)}
+                                boardId={boardId}
+                                onClick={() =>
+                                  setSelectedTask({
+                                    ...task,
+                                    columnName: column.name,
+                                  })
+                                }
                               />
                             </div>
                           )}
@@ -114,7 +218,12 @@ export function BoardView({
                       ))}
                       {provided.placeholder}
                       <button
-                        onClick={() => setCreateInColumn(column.id)}
+                        onClick={() =>
+                          setCreateInColumn({
+                            id: column.id,
+                            name: column.name,
+                          })
+                        }
                         className="flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs text-muted-foreground transition-colors hover:bg-neutral-200 hover:text-foreground dark:hover:bg-neutral-800"
                       >
                         <Plus className="h-3.5 w-3.5" />
@@ -126,12 +235,6 @@ export function BoardView({
               </div>
             )
           })}
-
-          {/* Add column */}
-          <button className="flex h-10 w-40 flex-shrink-0 items-center justify-center gap-1.5 self-start rounded-lg text-xs text-muted-foreground transition-colors hover:bg-neutral-100 hover:text-foreground dark:hover:bg-neutral-900">
-            <Plus className="h-3.5 w-3.5" />
-            Add column
-          </button>
         </div>
       </DragDropContext>
 
@@ -140,13 +243,15 @@ export function BoardView({
           open={!!createInColumn}
           onOpenChange={(open) => !open && setCreateInColumn(null)}
           boardId={boardId}
-          columnId={createInColumn}
+          columnId={createInColumn.id}
+          columnName={createInColumn.name}
           workspaceId={workspaceId}
         />
       )}
 
       {selectedTask && (
         <TaskDetailDialog
+          key={selectedTask.id}
           open={!!selectedTask}
           onOpenChange={(open) => !open && setSelectedTask(null)}
           task={selectedTask}

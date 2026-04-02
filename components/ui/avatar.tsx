@@ -32,6 +32,9 @@ function AvatarImage({
   return (
     <AvatarPrimitive.Image
       data-slot="avatar-image"
+      referrerPolicy="no-referrer"
+      loading="lazy"
+      decoding="async"
       className={cn(
         "aspect-square size-full rounded-full object-cover",
         className

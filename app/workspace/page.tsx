@@ -2,10 +2,21 @@
 
 import { redirect } from "next/navigation"
 import { skipToken } from "@tanstack/react-query"
+import { useEffect, useState } from "react"
 import { trpc } from "@/lib/trpc/client"
+import { readSelectedWorkspaceId } from "@/lib/workspace-selection"
 
 export default function WorkspacePage() {
-  const { data: workspace } = trpc.workspace.getDefault.useQuery()
+  const [preferredWorkspaceId, setPreferredWorkspaceId] = useState<string | undefined>(
+    undefined
+  )
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPreferredWorkspaceId(readSelectedWorkspaceId() || undefined)
+  }, [])
+  const { data: workspace } = trpc.workspace.getDefault.useQuery(
+    preferredWorkspaceId ? { preferredWorkspaceId } : undefined
+  )
   const { data: channels } = trpc.channel.list.useQuery(
     workspace ? { workspaceId: workspace.id } : skipToken
   )

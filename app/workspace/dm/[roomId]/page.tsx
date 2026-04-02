@@ -1,10 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useParams } from "next/navigation"
 import { skipToken } from "@tanstack/react-query"
 import { trpc } from "@/lib/trpc/client"
+import { MESSAGE_POLL_QUERY_OPTIONS } from "@/lib/polling"
 import { useCurrentUser } from "@/lib/user-context"
+import { readSelectedWorkspaceId } from "@/lib/workspace-selection"
 import { MessageList, type Message } from "@/components/message-list"
 import { MessageInput } from "@/components/message-input"
 import { CreateTaskFromMessageDialog } from "@/components/create-task-from-message-dialog"
@@ -14,9 +16,18 @@ export default function DmPage() {
   const { roomId } = useParams<{ roomId: string }>()
   const { currentUser } = useCurrentUser()
   const [taskMessage, setTaskMessage] = useState<Message | null>(null)
+  const [preferredWorkspaceId, setPreferredWorkspaceId] = useState<
+    string | undefined
+  >(undefined)
   const utils = trpc.useUtils()
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPreferredWorkspaceId(readSelectedWorkspaceId() || undefined)
+  }, [])
 
-  const { data: workspace } = trpc.workspace.getDefault.useQuery()
+  const { data: workspace } = trpc.workspace.getDefault.useQuery(
+    preferredWorkspaceId ? { preferredWorkspaceId } : undefined
+  )
   const { data: users } = trpc.user.list.useQuery()
   const { data: dmRooms } = trpc.dm.list.useQuery(
     workspace && currentUser
@@ -26,10 +37,15 @@ export default function DmPage() {
 
   const { data: messages } = trpc.dm.messages.useQuery(
     { roomId },
-    { refetchInterval: 3000 }
+    MESSAGE_POLL_QUERY_OPTIONS
   )
 
   const sendMessage = trpc.message.send.useMutation({
+    onSuccess: () => {
+      utils.dm.messages.invalidate({ roomId })
+    },
+  })
+  const deleteMessage = trpc.message.delete.useMutation({
     onSuccess: () => {
       utils.dm.messages.invalidate({ roomId })
     },
@@ -59,6 +75,10 @@ export default function DmPage() {
         messages={messages ?? []}
         onCreateTask={setTaskMessage}
         currentUserId={currentUser?.id}
+        workspaceId={workspace?.id}
+        onDeleteMessage={(message) => {
+          deleteMessage.mutate({ messageId: message.id })
+        }}
       />
 
       {/* Input */}

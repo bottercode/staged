@@ -1,6 +1,7 @@
 "use client"
 
 import { createContext, useContext, useState, useCallback } from "react"
+import { useSession } from "next-auth/react"
 import { trpc } from "@/lib/trpc/client"
 
 type User = {
@@ -25,12 +26,28 @@ const UserContext = createContext<UserContextType>({
 })
 
 export function UserProvider({ children }: { children: React.ReactNode }) {
+  const { data: session } = useSession()
   const { data: users } = trpc.user.list.useQuery()
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const allUsers = users ?? []
+  const sessionEmail = session?.user?.email?.trim().toLowerCase()
   const currentUser =
-    allUsers.find((u) => u.id === selectedId) ?? allUsers[0] ?? null
+    (sessionEmail
+      ? allUsers.find((u) => u.email.trim().toLowerCase() === sessionEmail)
+      : null) ??
+    allUsers.find((u) => u.id === selectedId) ??
+    allUsers[0] ??
+    null
+  const sessionName = session?.user?.name?.trim() || null
+  const sessionAvatar = session?.user?.image?.trim() || null
+  const hydratedCurrentUser = currentUser
+    ? {
+        ...currentUser,
+        name: sessionName || currentUser.name,
+        avatarUrl: sessionAvatar || currentUser.avatarUrl,
+      }
+    : null
   const isReady = allUsers.length > 0
 
   const setCurrentUser = useCallback((user: User) => {
@@ -39,7 +56,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <UserContext.Provider
-      value={{ currentUser, users: allUsers, setCurrentUser, isReady }}
+      value={{ currentUser: hydratedCurrentUser, users: allUsers, setCurrentUser, isReady }}
     >
       {children}
     </UserContext.Provider>

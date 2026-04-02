@@ -2,7 +2,6 @@
 
 import {
   Hash,
-  MessageSquare,
   Plus,
   LayoutGrid,
   MessagesSquare,
@@ -10,16 +9,28 @@ import {
   FileText,
   Bot,
   Settings,
+  Check,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
 } from "lucide-react"
 import { useRouter, usePathname } from "next/navigation"
+import { skipToken } from "@tanstack/react-query"
+import { useEffect, useMemo, useState } from "react"
 import { trpc } from "@/lib/trpc/client"
+import { cn } from "@/lib/utils"
 import { useCurrentUser } from "@/lib/user-context"
 import { useNotifications } from "@/hooks/use-notifications"
+import {
+  readSelectedWorkspaceId,
+  writeSelectedWorkspaceId,
+} from "@/lib/workspace-selection"
 import { UserSwitcher } from "./user-switcher"
 import { ChannelCreateDialog } from "./channel-create-dialog"
 import { DmCreateDialog } from "./dm-create-dialog"
 import { BoardCreateDialog } from "./tasks/board-create-dialog"
 import { PortalCreateDialog } from "./portal-create-dialog"
+import { AgentSettingsDialog } from "./agent-settings-dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
@@ -29,10 +40,21 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { skipToken } from "@tanstack/react-query"
-import { cn } from "@/lib/utils"
-import { useMemo, useState } from "react"
-import { AgentSettingsDialog } from "./agent-settings-dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
 type Tab = "chat" | "tasks" | "portals" | "docs" | "agent"
 
@@ -49,29 +71,59 @@ function NavRail({
   activeTab,
   onTabChange,
   onOpenSettings,
+  onCreateWorkspace,
+  workspaces,
+  activeWorkspaceId,
+  onSwitchWorkspace,
   totalUnread,
   workspaceName,
 }: {
   activeTab: Tab
   onTabChange: (tab: Tab) => void
   onOpenSettings: () => void
+  onCreateWorkspace: () => void
+  workspaces: Array<{ id: string; name: string }>
+  activeWorkspaceId?: string
+  onSwitchWorkspace: (workspaceId: string) => void
   totalUnread: number
   workspaceName: string
 }) {
   return (
     <TooltipProvider delayDuration={0}>
       <div className="flex w-12 flex-shrink-0 flex-col items-center gap-1 border-r bg-sidebar py-3">
-        {/* Workspace initial */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-xs font-bold text-primary-foreground">
-              {workspaceName[0]?.toUpperCase() ?? "S"}
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="right">{workspaceName}</TooltipContent>
-        </Tooltip>
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-xs font-bold text-primary-foreground transition-opacity hover:opacity-90">
+                  {workspaceName[0]?.toUpperCase() ?? "S"}
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="right">{workspaceName}</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent side="right" align="start" className="w-48">
+            {workspaces.map((workspace) => (
+              <DropdownMenuItem
+                key={workspace.id}
+                onClick={() => onSwitchWorkspace(workspace.id)}
+                className="cursor-pointer"
+              >
+                <span className="truncate">{workspace.name}</span>
+                {workspace.id === activeWorkspaceId ? (
+                  <Check className="ml-auto h-3.5 w-3.5" />
+                ) : null}
+              </DropdownMenuItem>
+            ))}
+            {workspaces.length > 0 ? <Separator className="my-1" /> : null}
+            <DropdownMenuItem onClick={onCreateWorkspace} className="cursor-pointer">
+              Create New Workspace
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <div className="mb-1 h-px w-6 bg-border" />
+
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -210,17 +262,11 @@ function ChatSidebar({
 
       <ScrollArea className="flex-1">
         <div className="p-2">
-          {/* Channels */}
           <div className="mb-1 flex items-center justify-between px-2">
             <span className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
               Channels
             </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-5 w-5"
-              onClick={onCreateChannel}
-            >
+            <Button variant="ghost" size="icon" className="h-5 w-5" onClick={onCreateChannel}>
               <Plus className="h-3.5 w-3.5" />
             </Button>
           </div>
@@ -250,17 +296,11 @@ function ChatSidebar({
 
           <Separator className="my-3" />
 
-          {/* DMs */}
           <div className="mb-1 flex items-center justify-between px-2">
             <span className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
               Direct Messages
             </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-5 w-5"
-              onClick={onCreateDm}
-            >
+            <Button variant="ghost" size="icon" className="h-5 w-5" onClick={onCreateDm}>
               <Plus className="h-3.5 w-3.5" />
             </Button>
           </div>
@@ -269,6 +309,7 @@ function ChatSidebar({
             const isActive = pathname.includes(`/dm/${room.id}`)
             const otherUser = room.members[0]
             const unread = unreadCounts[room.id] ?? 0
+            const fallback = (otherUser?.name || "U").trim()[0]?.toUpperCase() || "U"
             return (
               <button
                 key={room.id}
@@ -282,9 +323,14 @@ function ChatSidebar({
                       : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50"
                 )}
               >
-                <MessageSquare className="h-3.5 w-3.5 flex-shrink-0" />
-                <span className="truncate">{otherUser?.name ?? "Unknown"}</span>
-                <UnreadBadge count={unread} />
+                <Avatar className="h-4.5 w-4.5 flex-shrink-0">
+                  <AvatarImage src={otherUser?.avatarUrl ?? undefined} />
+                  <AvatarFallback className="text-[9px]">{fallback}</AvatarFallback>
+                </Avatar>
+                <span className="min-w-0 flex-1 truncate text-left">
+                  {otherUser?.name ?? "Unknown"}
+                </span>
+                {unread > 0 ? <UnreadBadge count={unread} /> : null}
               </button>
             )
           })}
@@ -299,11 +345,15 @@ function TasksSidebar({
   pathname,
   router,
   onCreateBoard,
+  onRenameBoard,
+  onDeleteBoard,
 }: {
   boards: { id: string; name: string }[] | undefined
   pathname: string
   router: ReturnType<typeof useRouter>
   onCreateBoard: () => void
+  onRenameBoard: (board: { id: string; name: string }) => void
+  onDeleteBoard: (board: { id: string; name: string }) => void
 }) {
   return (
     <>
@@ -317,12 +367,7 @@ function TasksSidebar({
             <span className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
               Boards
             </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-5 w-5"
-              onClick={onCreateBoard}
-            >
+            <Button variant="ghost" size="icon" className="h-5 w-5" onClick={onCreateBoard}>
               <Plus className="h-3.5 w-3.5" />
             </Button>
           </div>
@@ -330,26 +375,61 @@ function TasksSidebar({
           {boards?.map((board) => {
             const isActive = pathname.includes(`/tasks/${board.id}`)
             return (
-              <button
+              <div
                 key={board.id}
-                onClick={() => router.push(`/workspace/tasks/${board.id}`)}
                 className={cn(
-                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+                  "group flex items-center gap-1 rounded-md pr-1",
                   isActive
-                    ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50"
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "hover:bg-sidebar-accent/50"
                 )}
               >
-                <LayoutGrid className="h-3.5 w-3.5 flex-shrink-0" />
-                <span className="truncate">{board.name}</span>
-              </button>
+                <button
+                  onClick={() => router.push(`/workspace/tasks/${board.id}`)}
+                  className={cn(
+                    "flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-sm transition-colors",
+                    isActive
+                      ? "font-medium text-sidebar-accent-foreground"
+                      : "text-sidebar-foreground/70"
+                  )}
+                >
+                  <LayoutGrid className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span className="truncate">{board.name}</span>
+                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className={cn(
+                        "flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground",
+                        isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                      )}
+                    >
+                      <MoreHorizontal className="h-3.5 w-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent side="right" align="start" className="w-40">
+                    <DropdownMenuItem
+                      onClick={() => onRenameBoard(board)}
+                      className="cursor-pointer"
+                    >
+                      <Pencil className="mr-2 h-3.5 w-3.5" />
+                      Rename
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => onDeleteBoard(board)}
+                      className="cursor-pointer text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="mr-2 h-3.5 w-3.5" />
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             )
           })}
 
           {(!boards || boards.length === 0) && (
-            <p className="px-2 py-4 text-center text-xs text-muted-foreground">
-              No boards yet
-            </p>
+            <p className="px-2 py-4 text-center text-xs text-muted-foreground">No boards yet</p>
           )}
         </div>
       </ScrollArea>
@@ -382,12 +462,7 @@ function PortalsSidebar({
             <span className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
               Portals
             </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-5 w-5"
-              onClick={onCreatePortal}
-            >
+            <Button variant="ghost" size="icon" className="h-5 w-5" onClick={onCreatePortal}>
               <Plus className="h-3.5 w-3.5" />
             </Button>
           </div>
@@ -417,9 +492,7 @@ function PortalsSidebar({
           })}
 
           {(!portals || portals.length === 0) && (
-            <p className="px-2 py-4 text-center text-xs text-muted-foreground">
-              No portals yet
-            </p>
+            <p className="px-2 py-4 text-center text-xs text-muted-foreground">No portals yet</p>
           )}
         </div>
       </ScrollArea>
@@ -450,12 +523,7 @@ function DocsSidebar({
             <span className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
               My Docs
             </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-5 w-5"
-              onClick={onCreateDoc}
-            >
+            <Button variant="ghost" size="icon" className="h-5 w-5" onClick={onCreateDoc}>
               <Plus className="h-3.5 w-3.5" />
             </Button>
           </div>
@@ -473,18 +541,14 @@ function DocsSidebar({
                     : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50"
                 )}
               >
-                <span className="flex-shrink-0 text-sm">
-                  {doc.emoji || "📄"}
-                </span>
-                <span className="min-w-0 truncate">{doc.title || "Untitled"}</span>
+                <span className="flex-shrink-0 text-sm">{doc.emoji || "📄"}</span>
+                <span className="min-w-0 flex-1 truncate text-left">{doc.title || "Untitled"}</span>
               </button>
             )
           })}
 
           {(!docs || docs.length === 0) && (
-            <p className="px-2 py-4 text-center text-xs text-muted-foreground">
-              No docs yet
-            </p>
+            <p className="px-2 py-4 text-center text-xs text-muted-foreground">No docs yet</p>
           )}
         </div>
       </ScrollArea>
@@ -494,15 +558,33 @@ function DocsSidebar({
 
 export function Sidebar() {
   const router = useRouter()
-  const pathname = usePathname()
+  const pathname = usePathname() || ""
   const { currentUser } = useCurrentUser()
+
   const [showCreateChannel, setShowCreateChannel] = useState(false)
   const [showCreateDm, setShowCreateDm] = useState(false)
   const [showCreateBoard, setShowCreateBoard] = useState(false)
   const [showCreatePortal, setShowCreatePortal] = useState(false)
   const [showAgentSettings, setShowAgentSettings] = useState(false)
+  const [showCreateWorkspace, setShowCreateWorkspace] = useState(false)
+  const [renameBoardTarget, setRenameBoardTarget] = useState<{
+    id: string
+    name: string
+  } | null>(null)
+  const [deleteBoardTarget, setDeleteBoardTarget] = useState<{
+    id: string
+    name: string
+  } | null>(null)
+  const [boardRenameValue, setBoardRenameValue] = useState("")
+  const [newWorkspaceName, setNewWorkspaceName] = useState("")
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
+    null
+  )
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelectedWorkspaceId(readSelectedWorkspaceId())
+  }, [])
 
-  // Determine active tab from URL
   const activeTab: Tab = pathname.includes("/agent")
     ? "agent"
     : pathname.includes("/portals")
@@ -513,7 +595,25 @@ export function Sidebar() {
           ? "tasks"
           : "chat"
 
-  const { data: workspace } = trpc.workspace.getDefault.useQuery()
+  const { data: workspace } = trpc.workspace.getDefault.useQuery(
+    selectedWorkspaceId ? { preferredWorkspaceId: selectedWorkspaceId } : undefined
+  )
+  const { data: workspaces } = trpc.workspace.list.useQuery()
+  const uniqueWorkspaces = (() => {
+    const map = new Map<string, { id: string; name: string }>()
+    for (const workspace of workspaces ?? []) {
+      if (!map.has(workspace.id)) {
+        map.set(workspace.id, { id: workspace.id, name: workspace.name })
+      }
+    }
+    if (workspace?.id && !map.has(workspace.id)) {
+      map.set(workspace.id, {
+        id: workspace.id,
+        name: workspace.name,
+      })
+    }
+    return Array.from(map.values())
+  })()
   const { data: channels } = trpc.channel.list.useQuery(
     workspace ? { workspaceId: workspace.id } : skipToken
   )
@@ -543,11 +643,75 @@ export function Sidebar() {
 
   const utils = trpc.useUtils()
   const createDoc = trpc.doc.create.useMutation({
-    onSuccess: (doc) => {
-      utils.doc.list.invalidate()
+    onSuccess: async (doc) => {
+      await utils.doc.list.invalidate()
       router.push(`/workspace/docs/${doc.id}`)
     },
   })
+
+  const createWorkspace = trpc.workspace.create.useMutation({
+    onSuccess: async (createdWorkspace) => {
+      await Promise.all([
+        utils.workspace.getDefault.invalidate(),
+        utils.channel.list.invalidate(),
+      ])
+      const workspaceChannels = await utils.channel.list.fetch({
+        workspaceId: createdWorkspace.id,
+      })
+      const first = workspaceChannels?.[0]
+      writeSelectedWorkspaceId(createdWorkspace.id)
+      setSelectedWorkspaceId(createdWorkspace.id)
+      setShowCreateWorkspace(false)
+      setNewWorkspaceName("")
+      if (first) {
+        router.push(`/workspace/channel/${first.id}`)
+      } else {
+        router.push("/workspace")
+      }
+    },
+  })
+
+  const renameBoard = trpc.board.rename.useMutation({
+    onSuccess: async (updatedBoard) => {
+      await Promise.all([
+        utils.board.list.invalidate(),
+        utils.board.getById.invalidate(),
+      ])
+      if (updatedBoard?.id) {
+        router.push(`/workspace/tasks/${updatedBoard.id}`)
+      }
+      setRenameBoardTarget(null)
+      setBoardRenameValue("")
+    },
+  })
+
+  const deleteBoard = trpc.board.delete.useMutation({
+    onSuccess: async (result) => {
+      await Promise.all([
+        utils.board.list.invalidate(),
+        utils.board.getById.invalidate(),
+      ])
+      const remainingBoards =
+        boards?.filter((board) => board.id !== result.id) ?? []
+      if (pathname.includes(`/tasks/${result.id}`)) {
+        if (remainingBoards.length > 0) {
+          router.push(`/workspace/tasks/${remainingBoards[0].id}`)
+        } else {
+          router.push("/workspace/tasks")
+        }
+      }
+      setDeleteBoardTarget(null)
+    },
+  })
+
+  useEffect(() => {
+    if (!workspace?.id) return
+    if (!selectedWorkspaceId) {
+      writeSelectedWorkspaceId(workspace.id)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSelectedWorkspaceId(workspace.id)
+    }
+  }, [workspace?.id, selectedWorkspaceId])
 
   const handleCreateDoc = () => {
     if (!workspace || !currentUser) return
@@ -589,16 +753,24 @@ export function Sidebar() {
 
   return (
     <div className="flex h-full flex-shrink-0">
-      {/* Icon rail */}
       <NavRail
         activeTab={activeTab}
         onTabChange={handleTabChange}
         onOpenSettings={() => setShowAgentSettings(true)}
+        onCreateWorkspace={() => setShowCreateWorkspace(true)}
+        workspaces={uniqueWorkspaces}
+        activeWorkspaceId={workspace?.id}
+        onSwitchWorkspace={(workspaceId) => {
+          writeSelectedWorkspaceId(workspaceId)
+          setSelectedWorkspaceId(workspaceId)
+          utils.workspace.getDefault.invalidate()
+          utils.channel.list.invalidate()
+          router.push("/workspace")
+        }}
         totalUnread={totalUnread}
         workspaceName={workspace?.name ?? "Staged"}
       />
 
-      {/* Sidebar panel — hidden for agent tab */}
       {activeTab !== "agent" && (
         <div className="flex w-56 flex-col border-r bg-sidebar text-sidebar-foreground">
           {activeTab === "chat" ? (
@@ -617,6 +789,11 @@ export function Sidebar() {
               pathname={pathname}
               router={router}
               onCreateBoard={() => setShowCreateBoard(true)}
+              onRenameBoard={(board) => {
+                setRenameBoardTarget(board)
+                setBoardRenameValue(board.name)
+              }}
+              onDeleteBoard={(board) => setDeleteBoardTarget(board)}
             />
           ) : activeTab === "docs" ? (
             <DocsSidebar
@@ -634,13 +811,11 @@ export function Sidebar() {
             />
           )}
 
-          {/* User switcher at bottom */}
           <Separator />
           <UserSwitcher />
         </div>
       )}
 
-      {/* Dialogs */}
       <ChannelCreateDialog
         open={showCreateChannel}
         onOpenChange={setShowCreateChannel}
@@ -664,7 +839,140 @@ export function Sidebar() {
       <AgentSettingsDialog
         open={showAgentSettings}
         onOpenChange={setShowAgentSettings}
+        workspaceId={workspace?.id}
+        workspaceName={workspace?.name}
+        workspaceCreatedAt={workspace?.createdAt}
+        currentUserId={currentUser?.id}
       />
+
+      <Dialog open={showCreateWorkspace} onOpenChange={setShowCreateWorkspace}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Workspace</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">Workspace Name</p>
+            <Input
+              value={newWorkspaceName}
+              placeholder="My Workspace"
+              onChange={(event) => setNewWorkspaceName(event.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowCreateWorkspace(false)
+                setNewWorkspaceName("")
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                !newWorkspaceName.trim() || createWorkspace.isPending
+              }
+              onClick={() => {
+                if (!newWorkspaceName.trim()) return
+                createWorkspace.mutate({
+                  name: newWorkspaceName.trim(),
+                })
+              }}
+            >
+              {createWorkspace.isPending ? "Creating..." : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(renameBoardTarget)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRenameBoardTarget(null)
+            setBoardRenameValue("")
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename board</DialogTitle>
+          </DialogHeader>
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (!renameBoardTarget || !boardRenameValue.trim()) return
+              renameBoard.mutate({
+                id: renameBoardTarget.id,
+                name: boardRenameValue.trim(),
+              })
+            }}
+          >
+            <Input
+              value={boardRenameValue}
+              onChange={(e) => setBoardRenameValue(e.target.value)}
+              placeholder="Board name"
+              autoFocus
+            />
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setRenameBoardTarget(null)
+                  setBoardRenameValue("")
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={!boardRenameValue.trim() || renameBoard.isPending}
+              >
+                Save
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(deleteBoardTarget)}
+        onOpenChange={(open) => {
+          if (!open) setDeleteBoardTarget(null)
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete board?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This will permanently delete <strong>{deleteBoardTarget?.name}</strong> and
+            all its tasks.
+          </p>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteBoardTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={!deleteBoardTarget || deleteBoard.isPending}
+              onClick={() => {
+                if (!deleteBoardTarget) return
+                deleteBoard.mutate({ id: deleteBoardTarget.id })
+              }}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

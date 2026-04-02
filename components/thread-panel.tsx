@@ -2,6 +2,7 @@
 
 import { X } from "lucide-react"
 import { trpc } from "@/lib/trpc/client"
+import { MESSAGE_POLL_QUERY_OPTIONS } from "@/lib/polling"
 import { useCurrentUser } from "@/lib/user-context"
 import { MessageList } from "./message-list"
 import { MessageInput } from "./message-input"
@@ -10,10 +11,12 @@ import { Button } from "@/components/ui/button"
 export function ThreadPanel({
   parentId,
   channelId,
+  workspaceId,
   onClose,
 }: {
   parentId: string
   channelId: string
+  workspaceId?: string
   onClose: () => void
 }) {
   const { currentUser } = useCurrentUser()
@@ -22,7 +25,7 @@ export function ThreadPanel({
 
   const { data: thread } = trpc.message.thread.useQuery(
     { parentId },
-    { refetchInterval: 3000 }
+    MESSAGE_POLL_QUERY_OPTIONS
   )
 
   const sendMessage = trpc.message.send.useMutation({
@@ -31,13 +34,17 @@ export function ThreadPanel({
       utils.message.list.invalidate({ channelId })
     },
   })
+  const deleteMessage = trpc.message.delete.useMutation({
+    onSuccess: () => {
+      utils.message.thread.invalidate({ parentId })
+      utils.message.list.invalidate({ channelId })
+    },
+  })
 
-  const allMessages = thread
-    ? [thread.parent, ...thread.replies].filter(Boolean)
-    : []
+  const allMessages = thread?.replies ?? []
 
   return (
-    <div className="flex h-full w-80 flex-shrink-0 flex-col border-l">
+    <div className="flex h-full min-h-0 w-[420px] flex-shrink-0 flex-col border-l">
       {/* Header */}
       <div className="flex h-12 items-center justify-between border-b px-4">
         <span className="text-sm font-semibold">Thread</span>
@@ -50,6 +57,10 @@ export function ThreadPanel({
       <MessageList
         messages={allMessages}
         currentUserId={currentUser?.id}
+        workspaceId={workspaceId}
+        onDeleteMessage={(message) => {
+          deleteMessage.mutate({ messageId: message.id })
+        }}
         showThreadCount={false}
       />
 

@@ -1,12 +1,13 @@
-import fs from "fs/promises"
-import path from "path"
+import { listConversationEvents } from "@/server/agent/history"
 import { historyEventToProtocol } from "@/server/agent/protocol"
-
-function sanitizeFileName(input: string) {
-  return input.replace(/[^a-zA-Z0-9._-]/g, "_")
-}
+import { getAuthenticatedUserId } from "@/server/auth-user"
 
 export async function GET(req: Request) {
+  const userId = await getAuthenticatedUserId()
+  if (!userId) {
+    return Response.json({ ok: false, error: "Unauthorized" }, { status: 401 })
+  }
+
   const { searchParams } = new URL(req.url)
   const conversationId = searchParams.get("conversationId")?.trim()
 
@@ -18,18 +19,8 @@ export async function GET(req: Request) {
   }
 
   try {
-    const historyPath = path.join(
-      process.cwd(),
-      ".staged-agent",
-      "history",
-      `${sanitizeFileName(conversationId)}.jsonl`
-    )
-    const raw = await fs.readFile(historyPath, "utf-8")
-    const events = raw
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as { ts: string; type: string; payload: Record<string, unknown> })
+    const history = await listConversationEvents(userId, conversationId)
+    const events = history
       .map((event) => historyEventToProtocol(event))
       .filter(Boolean)
 
@@ -38,4 +29,3 @@ export async function GET(req: Request) {
     return Response.json({ ok: true, events: [] })
   }
 }
-

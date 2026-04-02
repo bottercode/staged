@@ -1,8 +1,11 @@
 import { Geist_Mono, Inter } from "next/font/google"
+import { getServerSession } from "next-auth"
 
 import "./globals.css"
+import { AuthSessionProvider } from "@/components/auth/session-provider"
 import { ThemeProvider } from "@/components/theme-provider"
 import { TRPCProvider } from "@/components/providers"
+import { authOptions } from "@/lib/auth"
 import { UserProvider } from "@/lib/user-context"
 import { cn } from "@/lib/utils"
 
@@ -18,11 +21,13 @@ export const metadata = {
   description: "The workspace where work moves forward",
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const session = await getServerSession(authOptions)
+
   return (
     <html
       lang="en"
@@ -35,11 +40,13 @@ export default function RootLayout({
       )}
     >
       <body>
-        <ThemeProvider>
-          <TRPCProvider>
-            <UserProvider>{children}</UserProvider>
-          </TRPCProvider>
-        </ThemeProvider>
+        <AuthSessionProvider session={session}>
+          <ThemeProvider>
+            <TRPCProvider>
+              <UserProvider>{children}</UserProvider>
+            </TRPCProvider>
+          </ThemeProvider>
+        </AuthSessionProvider>
       </body>
     </html>
   )

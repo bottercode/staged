@@ -1,6 +1,9 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { skipToken } from "@tanstack/react-query"
+import { useRouter } from "next/navigation"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -11,11 +14,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { trpc } from "@/lib/trpc/client"
 import {
   DEFAULT_AGENT_SETTINGS,
   readAgentSettings,
   writeAgentSettings,
 } from "@/lib/agent-settings"
+
+type SettingsTab = "members" | "apps" | "workspace"
 
 type FieldKey =
   | "anthropicApiKey"
@@ -32,13 +38,42 @@ const FIELDS: Array<{ key: FieldKey; label: string; placeholder: string }> = [
   { key: "xaiApiKey", label: "xAI", placeholder: "xai-..." },
 ]
 
+const TAB_LABELS: Array<{ key: SettingsTab; label: string }> = [
+  { key: "members", label: "Members" },
+  { key: "apps", label: "Apps" },
+  { key: "workspace", label: "Workspace Settings" },
+]
+
+function titleFromEmail(email: string) {
+  const local = email.split("@")[0] || "member"
+  return local
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ")
+}
+
 export function AgentSettingsDialog({
   open,
   onOpenChange,
+  workspaceId,
+  workspaceName,
+  workspaceCreatedAt,
+  currentUserId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  workspaceId?: string
+  workspaceName?: string
+  workspaceCreatedAt?: string | Date
+  currentUserId?: string
 }) {
+  const router = useRouter()
+  const [tab, setTab] = useState<SettingsTab>("members")
+  const [workspaceTitleDraft, setWorkspaceTitleDraft] = useState<string | null>(
+    null
+  )
+
   const [values, setValues] = useState<Record<FieldKey, string>>({
     anthropicApiKey: readAgentSettings().providerApiKeys.anthropicApiKey || "",
     openaiApiKey: readAgentSettings().providerApiKeys.openaiApiKey || "",
@@ -46,11 +81,91 @@ export function AgentSettingsDialog({
     mistralApiKey: readAgentSettings().providerApiKeys.mistralApiKey || "",
     xaiApiKey: readAgentSettings().providerApiKeys.xaiApiKey || "",
   })
+
   const [mcpServers, setMcpServers] = useState<
     Array<{ id: string; name: string; url: string; enabled: boolean }>
   >([])
   const [newMcpName, setNewMcpName] = useState("")
   const [newMcpUrl, setNewMcpUrl] = useState("")
+
+  const [inviteEmail, setInviteEmail] = useState("")
+  const [inviteRole, setInviteRole] = useState<"member" | "admin">("member")
+  const [inviteNotice, setInviteNotice] = useState<string | null>(null)
+  const [copiedInviteLink, setCopiedInviteLink] = useState(false)
+
+  const utils = trpc.useUtils()
+  const membersQuery = trpc.workspace.getMembers.useQuery(
+    workspaceId ? { workspaceId } : skipToken,
+    { enabled: open && tab === "members" }
+  )
+  const invitesQuery = trpc.workspace.listInvites.useQuery(
+    workspaceId ? { workspaceId } : skipToken,
+    { enabled: open && tab === "members" }
+  )
+  const inviteLinkQuery = trpc.workspace.getInviteLink.useQuery(
+    workspaceId ? { workspaceId } : skipToken,
+    { enabled: open && tab === "members" }
+  )
+
+  const inviteMember = trpc.workspace.inviteMember.useMutation({
+    onSuccess: async (result) => {
+      await Promise.all([
+        utils.workspace.getMembers.invalidate(),
+        utils.workspace.listInvites.invalidate(),
+        utils.user.list.invalidate(),
+        utils.dm.list.invalidate(),
+      ])
+      setInviteEmail("")
+      if (result?.emailSent === false) {
+        const errorText =
+          typeof result.emailError === "string" && result.emailError.length > 0
+            ? result.emailError
+            : "unknown email provider error"
+        setInviteNotice(`Invite saved, but email failed: ${errorText}`)
+      } else {
+        setInviteNotice(null)
+      }
+    },
+  })
+  const revokeInvite = trpc.workspace.revokeInvite.useMutation({
+    onSuccess: async () => {
+      await utils.workspace.listInvites.invalidate()
+    },
+  })
+  const removeMember = trpc.workspace.removeMember.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.workspace.getMembers.invalidate(),
+        utils.dm.list.invalidate(),
+      ])
+    },
+  })
+  const createInviteLink = trpc.workspace.createInviteLink.useMutation({
+    onSuccess: async () => {
+      await utils.workspace.getInviteLink.invalidate()
+    },
+  })
+  const revokeInviteLink = trpc.workspace.revokeInviteLink.useMutation({
+    onSuccess: async () => {
+      await utils.workspace.getInviteLink.invalidate()
+    },
+  })
+  const updateWorkspaceTitle = trpc.workspace.updateTitle.useMutation({
+    onSuccess: async () => {
+      await utils.workspace.getDefault.invalidate()
+    },
+  })
+  const leaveWorkspace = trpc.workspace.leave.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.workspace.getDefault.invalidate(),
+        utils.channel.list.invalidate(),
+        utils.dm.list.invalidate(),
+      ])
+      onOpenChange(false)
+      router.replace("/workspace")
+    },
+  })
 
   useEffect(() => {
     if (!open) return
@@ -58,7 +173,12 @@ export function AgentSettingsDialog({
       try {
         const res = await fetch("/api/agent/mcp")
         const data = (await res.json()) as {
-          servers?: Array<{ id: string; name: string; url: string; enabled: boolean }>
+          servers?: Array<{
+            id: string
+            name: string
+            url: string
+            enabled: boolean
+          }>
         }
         setMcpServers(data.servers || [])
       } catch {
@@ -67,6 +187,8 @@ export function AgentSettingsDialog({
     }
     void load()
   }, [open])
+
+  const workspaceTitle = workspaceTitleDraft ?? workspaceName ?? ""
 
   const handleSave = () => {
     writeAgentSettings({
@@ -77,7 +199,6 @@ export function AgentSettingsDialog({
         mistralApiKey: values.mistralApiKey.trim() || undefined,
         xaiApiKey: values.xaiApiKey.trim() || undefined,
       },
-      permissionMode: readAgentSettings().permissionMode,
     })
     onOpenChange(false)
   }
@@ -126,94 +247,435 @@ export function AgentSettingsDialog({
     }
   }
 
+  const canInvite = Boolean(workspaceId && inviteEmail.trim())
+  const sortedMembers = useMemo(() => {
+    return [...(membersQuery.data || [])].sort((a, b) =>
+      a.joinedAt < b.joinedAt ? 1 : -1
+    )
+  }, [membersQuery.data])
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          setWorkspaceTitleDraft(null)
+          setTab("members")
+        }
+        onOpenChange(nextOpen)
+      }}
+    >
+      <DialogContent className="w-[min(96vw,1200px)] max-w-[1200px]">
         <DialogHeader>
-          <DialogTitle>Agent BYOK Settings</DialogTitle>
+          <DialogTitle>{workspaceName || "Workspace"}</DialogTitle>
           <DialogDescription>
-            Add provider API keys to run models with your own credentials. Keys
-            are stored locally in your browser.
+            Manage members, app integrations, and workspace settings.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3">
-          {FIELDS.map((field) => (
-            <div key={field.key} className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground">
-                {field.label}
-              </p>
-              <Input
-                type="password"
-                value={values[field.key]}
-                placeholder={field.placeholder}
-                onChange={(event) =>
-                  setValues((prev) => ({
-                    ...prev,
-                    [field.key]: event.target.value,
-                  }))
-                }
-              />
-            </div>
+        <div className="flex items-center gap-4 border-b">
+          {TAB_LABELS.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTab(t.key)}
+              className={`-mb-px border-b-2 px-1 py-2 text-sm ${
+                tab === t.key
+                  ? "border-foreground font-medium text-foreground"
+                  : "border-transparent text-muted-foreground"
+              }`}
+            >
+              {t.label}
+            </button>
           ))}
+        </div>
 
-          <div className="space-y-2 rounded border p-2">
-            <p className="text-xs font-medium text-muted-foreground">MCP Servers</p>
-            <div className="space-y-1">
-              {mcpServers.map((server) => (
-                <div
-                  key={server.id}
-                  className="flex items-center gap-2 rounded border px-2 py-1"
+        {tab === "members" && (
+          <div className="space-y-5">
+            <div className="rounded-xl border bg-muted/10 p-4">
+              <p className="mb-2 text-sm font-medium text-muted-foreground">
+                Invite members
+              </p>
+              <div className="grid w-full grid-cols-[minmax(0,1fr)_140px_90px] items-center gap-2">
+                <Input
+                  value={inviteEmail}
+                  placeholder="Enter email to invite"
+                  className="h-10 min-w-0"
+                  onChange={(event) => setInviteEmail(event.target.value)}
+                />
+                <select
+                  className="h-10 rounded-md border bg-background px-3 text-sm"
+                  value={inviteRole}
+                  onChange={(event) =>
+                    setInviteRole(event.target.value as "member" | "admin")
+                  }
                 >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-medium">{server.name}</p>
-                    <p className="truncate text-[10px] text-muted-foreground">
-                      {server.url}
-                    </p>
+                  <option value="member">Member</option>
+                  <option value="admin">Admin</option>
+                </select>
+                <Button
+                  type="button"
+                  className="h-10"
+                  disabled={!canInvite || inviteMember.isPending}
+                  onClick={() => {
+                    if (!workspaceId) return
+                    inviteMember.mutate({
+                      workspaceId,
+                      email: inviteEmail.trim(),
+                      role: inviteRole,
+                    })
+                  }}
+                >
+                  {inviteMember.isPending ? "Inviting..." : "Invite"}
+                </Button>
+              </div>
+              {inviteMember.error?.message && (
+                <p className="mt-2 text-xs text-destructive">
+                  {inviteMember.error.message}
+                </p>
+              )}
+              {inviteNotice && (
+                <p className="mt-2 text-xs text-amber-600">{inviteNotice}</p>
+              )}
+              <div className="mt-3 border-t pt-3">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Invite via workspace link
+                </p>
+                {inviteLinkQuery.data?.url ? (
+                  <div className="mt-2 flex items-center gap-2">
+                    <Input readOnly value={inviteLinkQuery.data.url} className="h-9" />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9"
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(inviteLinkQuery.data!.url)
+                        setCopiedInviteLink(true)
+                        window.setTimeout(() => setCopiedInviteLink(false), 1200)
+                      }}
+                    >
+                      {copiedInviteLink ? "Copied" : "Copy"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 border-destructive text-destructive hover:bg-destructive/10"
+                      disabled={revokeInviteLink.isPending || !workspaceId}
+                      onClick={() => {
+                        if (!workspaceId || !inviteLinkQuery.data?.id) return
+                        revokeInviteLink.mutate({
+                          workspaceId,
+                          inviteLinkId: inviteLinkQuery.data.id,
+                        })
+                      }}
+                    >
+                      Revoke
+                    </Button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const updated = { ...server, enabled: !server.enabled }
-                      setMcpServers((prev) =>
-                        prev.map((s) => (s.id === server.id ? updated : s))
-                      )
-                      try {
-                        await upsertMcp(updated)
-                      } catch {
-                        // ignore
-                      }
-                    }}
-                    className="rounded border px-2 py-1 text-[10px]"
-                  >
-                    {server.enabled ? "Enabled" : "Disabled"}
-                  </button>
+                ) : (
+                  <div className="mt-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9"
+                      disabled={createInviteLink.isPending || !workspaceId}
+                      onClick={() => {
+                        if (!workspaceId) return
+                        createInviteLink.mutate({ workspaceId })
+                      }}
+                    >
+                      {createInviteLink.isPending
+                        ? "Creating link..."
+                        : "Create workspace invite link"}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-lg border p-3">
+              <p className="text-xs tracking-wider text-muted-foreground uppercase">
+                Pending Invites
+              </p>
+              {invitesQuery.isLoading ? (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Loading invites...
+                </p>
+              ) : (invitesQuery.data?.length || 0) === 0 ? (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  No pending invites
+                </p>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  {invitesQuery.data?.map((invite) => (
+                    <div
+                      key={invite.id}
+                      className="flex items-center gap-2 rounded-md border px-2 py-1.5"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm">{invite.email}</p>
+                        <p className="text-xs capitalize text-muted-foreground">
+                          {invite.role}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 border-destructive text-destructive hover:bg-destructive/10"
+                        disabled={revokeInvite.isPending || !workspaceId}
+                        onClick={() => {
+                          if (!workspaceId) return
+                          revokeInvite.mutate({
+                            workspaceId,
+                            inviteId: invite.id,
+                          })
+                        }}
+                      >
+                        Revoke
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-xs tracking-wider text-muted-foreground uppercase">
+                Current Members
+              </p>
+
+              {membersQuery.isLoading && (
+                <p className="text-sm text-muted-foreground">
+                  Loading members...
+                </p>
+              )}
+
+              {!membersQuery.isLoading && sortedMembers.length === 0 && (
+                <p className="text-sm text-muted-foreground">No members yet</p>
+              )}
+
+              <div className="space-y-3">
+                {sortedMembers.map((member) => {
+                  const you = member.userId === currentUserId
+                  const name = member.name || titleFromEmail(member.email)
+                  return (
+                    <div
+                      key={member.userId}
+                      className="flex items-center gap-3"
+                    >
+                      <Avatar className="h-9 w-9">
+                        <AvatarImage src={member.avatarUrl ?? undefined} />
+                        <AvatarFallback>{name[0] || "U"}</AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">
+                          {name}
+                          {you ? (
+                            <span className="ml-1 text-muted-foreground">
+                              (you)
+                            </span>
+                          ) : null}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {member.email}
+                        </p>
+                        <p className="text-xs text-muted-foreground capitalize">
+                          {member.role}
+                        </p>
+                      </div>
+                      {!you && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 border-destructive text-destructive hover:bg-destructive/10"
+                          disabled={removeMember.isPending || !workspaceId}
+                          onClick={() => {
+                            if (!workspaceId) return
+                            removeMember.mutate({
+                              workspaceId,
+                              userId: member.userId,
+                            })
+                          }}
+                        >
+                          Remove
+                        </Button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab === "apps" && (
+          <div className="space-y-4">
+            <div className="space-y-3">
+              <p className="text-xs font-medium text-muted-foreground">
+                Model API Keys
+              </p>
+              {FIELDS.map((field) => (
+                <div key={field.key} className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {field.label}
+                  </p>
+                  <Input
+                    type="password"
+                    value={values[field.key]}
+                    placeholder={field.placeholder}
+                    onChange={(event) =>
+                      setValues((prev) => ({
+                        ...prev,
+                        [field.key]: event.target.value,
+                      }))
+                    }
+                  />
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <Input
-                value={newMcpName}
-                placeholder="Server name"
-                onChange={(e) => setNewMcpName(e.target.value)}
-              />
-              <Input
-                value={newMcpUrl}
-                placeholder="https://mcp.example.com"
-                onChange={(e) => setNewMcpUrl(e.target.value)}
-              />
+
+            <div className="space-y-2 rounded border p-2">
+              <p className="text-xs font-medium text-muted-foreground">
+                MCP Servers
+              </p>
+              <div className="space-y-1">
+                {mcpServers.map((server) => (
+                  <div
+                    key={server.id}
+                    className="flex items-center gap-2 rounded border px-2 py-1"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-medium">
+                        {server.name}
+                      </p>
+                      <p className="truncate text-[10px] text-muted-foreground">
+                        {server.url}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const updated = { ...server, enabled: !server.enabled }
+                        setMcpServers((prev) =>
+                          prev.map((s) => (s.id === server.id ? updated : s))
+                        )
+                        try {
+                          await upsertMcp(updated)
+                        } catch {
+                          // ignore
+                        }
+                      }}
+                      className="rounded border px-2 py-1 text-[10px]"
+                    >
+                      {server.enabled ? "Enabled" : "Disabled"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  value={newMcpName}
+                  placeholder="Server name"
+                  onChange={(e) => setNewMcpName(e.target.value)}
+                />
+                <Input
+                  value={newMcpUrl}
+                  placeholder="https://mcp.example.com"
+                  onChange={(e) => setNewMcpUrl(e.target.value)}
+                />
+              </div>
+              <Button type="button" variant="outline" onClick={addMcpServer}>
+                Add MCP server
+              </Button>
             </div>
-            <Button type="button" variant="outline" onClick={addMcpServer}>
-              Add MCP server
-            </Button>
           </div>
-        </div>
+        )}
+
+        {tab === "workspace" && (
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">Workspace Title</p>
+              <div className="flex gap-2">
+                <Input
+                  value={workspaceTitle}
+                  placeholder="Workspace title"
+                  onChange={(event) =>
+                    setWorkspaceTitleDraft(event.target.value)
+                  }
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={
+                    !workspaceId ||
+                    !workspaceTitle.trim() ||
+                    updateWorkspaceTitle.isPending
+                  }
+                  onClick={() => {
+                    if (!workspaceId || !workspaceTitle.trim()) return
+                    updateWorkspaceTitle.mutate({
+                      workspaceId,
+                      name: workspaceTitle.trim(),
+                    })
+                  }}
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              Created{" "}
+              {workspaceCreatedAt
+                ? new Date(workspaceCreatedAt).toLocaleDateString("en-GB", {
+                    day: "numeric",
+                    month: "long",
+                    year: "numeric",
+                  })
+                : "-"}
+            </p>
+
+            <div className="border-t pt-3">
+              <p className="text-sm text-muted-foreground">
+                You will lose access to all channels, messages, and files in
+                this workspace.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                className="mt-3 border-destructive text-destructive hover:bg-destructive/10"
+                disabled={
+                  !workspaceId || !currentUserId || leaveWorkspace.isPending
+                }
+                onClick={() => {
+                  if (!workspaceId || !currentUserId) return
+                  leaveWorkspace.mutate({
+                    workspaceId,
+                    userId: currentUserId,
+                  })
+                }}
+              >
+                {leaveWorkspace.isPending ? "Leaving..." : "Leave workspace"}
+              </Button>
+            </div>
+          </div>
+        )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={handleClear}>
-            Clear
-          </Button>
-          <Button onClick={handleSave}>Save</Button>
+          {tab === "apps" ? (
+            <>
+              <Button variant="outline" onClick={handleClear}>
+                Clear
+              </Button>
+              <Button onClick={handleSave}>Save</Button>
+            </>
+          ) : (
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Close
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

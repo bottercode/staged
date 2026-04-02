@@ -3,6 +3,7 @@
 import { useRef, useEffect, useState } from "react"
 import { usePathname } from "next/navigation"
 import { trpc } from "@/lib/trpc/client"
+import { MESSAGE_POLL_QUERY_OPTIONS } from "@/lib/polling"
 
 const NOTIFICATION_SOUND_URL = "https://cdn.freesound.org/previews/662/662411_11523868-lq.mp3"
 
@@ -27,12 +28,12 @@ export function useNotifications(
     { channelIds, dmRoomIds },
     {
       enabled: channelIds.length > 0 || dmRoomIds.length > 0,
-      refetchInterval: 3000,
+      ...MESSAGE_POLL_QUERY_OPTIONS,
     }
   )
 
   // Get which channel/dm is currently active from the URL
-  const activeId = pathname.match(
+  const activeId = (pathname ?? "").match(
     /\/(channel|dm)\/([a-f0-9-]+)/
   )?.[2] ?? null
 

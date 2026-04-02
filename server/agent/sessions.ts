@@ -1,9 +1,6 @@
-import fs from "fs/promises"
-import path from "path"
-
-const AGENT_DIR = path.join(process.cwd(), ".staged-agent")
-const SESSION_INDEX_PATH = path.join(AGENT_DIR, "sessions.json")
-const HISTORY_DIR = path.join(AGENT_DIR, "history")
+import { and, asc, desc, eq } from "drizzle-orm"
+import { db } from "@/server/db"
+import { agentEvents, agentSessions } from "@/server/db/schema"
 
 export type SessionMetadata = {
   conversationId: string
@@ -13,82 +10,140 @@ export type SessionMetadata = {
   updatedAt: string
 }
 
-async function readSessionIndex(): Promise<Record<string, SessionMetadata>> {
-  try {
-    const raw = await fs.readFile(SESSION_INDEX_PATH, "utf-8")
-    return JSON.parse(raw) as Record<string, SessionMetadata>
-  } catch {
-    return {}
+type TouchOptions = {
+  title?: string
+  tag?: string | null
+  projectPath?: string | null
+  modelId?: string | null
+}
+
+export async function touchSession(
+  userId: string,
+  conversationId: string,
+  options?: TouchOptions
+) {
+  const now = new Date()
+  const [existing] = await db
+    .select()
+    .from(agentSessions)
+    .where(
+      and(
+        eq(agentSessions.userId, userId),
+        eq(agentSessions.conversationId, conversationId)
+      )
+    )
+    .limit(1)
+
+  if (existing) {
+    await db
+      .update(agentSessions)
+      .set({
+        updatedAt: now,
+        title: options?.title ?? existing.title,
+        tag:
+          options?.tag !== undefined
+            ? options.tag
+            : (existing.tag ?? null),
+        projectPath:
+          options?.projectPath !== undefined
+            ? options.projectPath
+            : existing.projectPath,
+        modelId:
+          options?.modelId !== undefined
+            ? options.modelId
+            : existing.modelId,
+      })
+      .where(eq(agentSessions.id, existing.id))
+    return
   }
-}
 
-async function writeSessionIndex(index: Record<string, SessionMetadata>) {
-  await fs.mkdir(AGENT_DIR, { recursive: true })
-  await fs.writeFile(SESSION_INDEX_PATH, JSON.stringify(index, null, 2), "utf-8")
-}
-
-export async function touchSession(conversationId: string) {
-  const index = await readSessionIndex()
-  const now = new Date().toISOString()
-  const prev = index[conversationId]
-  index[conversationId] = {
+  await db.insert(agentSessions).values({
+    userId,
     conversationId,
-    createdAt: prev?.createdAt || now,
+    title: options?.title,
+    tag: options?.tag ?? null,
+    projectPath: options?.projectPath ?? null,
+    modelId: options?.modelId ?? null,
+    createdAt: now,
     updatedAt: now,
-    title: prev?.title,
-    tag: prev?.tag ?? null,
-  }
-  await writeSessionIndex(index)
+  })
 }
 
-export async function listSessions(): Promise<SessionMetadata[]> {
-  const index = await readSessionIndex()
-  return Object.values(index).sort((a, b) =>
-    a.updatedAt < b.updatedAt ? 1 : -1
-  )
+export async function listSessions(userId: string): Promise<SessionMetadata[]> {
+  const rows = await db
+    .select()
+    .from(agentSessions)
+    .where(eq(agentSessions.userId, userId))
+    .orderBy(desc(agentSessions.updatedAt))
+
+  return rows.map((row) => ({
+    conversationId: row.conversationId,
+    title: row.title || undefined,
+    tag: row.tag ?? null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  }))
 }
 
-export async function renameSession(conversationId: string, title: string) {
-  const index = await readSessionIndex()
-  const now = new Date().toISOString()
-  const prev = index[conversationId]
-  index[conversationId] = {
-    conversationId,
-    createdAt: prev?.createdAt || now,
-    updatedAt: now,
-    title,
-    tag: prev?.tag ?? null,
-  }
-  await writeSessionIndex(index)
+export async function renameSession(
+  userId: string,
+  conversationId: string,
+  title: string
+) {
+  await touchSession(userId, conversationId, { title })
 }
 
-export async function tagSession(conversationId: string, tag: string | null) {
-  const index = await readSessionIndex()
-  const now = new Date().toISOString()
-  const prev = index[conversationId]
-  index[conversationId] = {
-    conversationId,
-    createdAt: prev?.createdAt || now,
-    updatedAt: now,
-    title: prev?.title,
-    tag,
-  }
-  await writeSessionIndex(index)
-}
-
-function sanitize(input: string) {
-  return input.replace(/[^a-zA-Z0-9._-]/g, "_")
+export async function tagSession(
+  userId: string,
+  conversationId: string,
+  tag: string | null
+) {
+  await touchSession(userId, conversationId, { tag })
 }
 
 export async function forkSession(
+  userId: string,
   sourceConversationId: string,
   targetConversationId: string
 ) {
-  await fs.mkdir(HISTORY_DIR, { recursive: true })
-  const src = path.join(HISTORY_DIR, `${sanitize(sourceConversationId)}.jsonl`)
-  const dst = path.join(HISTORY_DIR, `${sanitize(targetConversationId)}.jsonl`)
-  const raw = await fs.readFile(src, "utf-8").catch(() => "")
-  await fs.writeFile(dst, raw, "utf-8")
-  await touchSession(targetConversationId)
-}
+  const [source] = await db
+    .select()
+    .from(agentSessions)
+    .where(
+      and(
+        eq(agentSessions.userId, userId),
+        eq(agentSessions.conversationId, sourceConversationId)
+      )
+    )
+    .limit(1)
 
+  const sourceEvents = await db
+    .select()
+    .from(agentEvents)
+    .where(
+      and(
+        eq(agentEvents.userId, userId),
+        eq(agentEvents.conversationId, sourceConversationId)
+      )
+    )
+    .orderBy(asc(agentEvents.ts))
+
+  if (sourceEvents.length > 0) {
+    await db.insert(agentEvents).values(
+      sourceEvents.map((event) => ({
+        userId,
+        conversationId: targetConversationId,
+        ts: event.ts,
+        type: event.type,
+        payload: event.payload,
+      }))
+    )
+  }
+
+  await touchSession(userId, targetConversationId, {
+    title: source?.title || undefined,
+    tag: source?.tag ?? null,
+    projectPath: source?.projectPath ?? null,
+    modelId: source?.modelId ?? null,
+  })
+}

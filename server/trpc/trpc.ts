@@ -7,10 +7,10 @@ export type Context = {
   userId: string | null
 }
 
-export function createContext(): Context {
+export function createContext(userId?: string | null): Context {
   return {
     db,
-    userId: null, // set by middleware from cookie/header
+    userId: userId ?? null,
   }
 }
 

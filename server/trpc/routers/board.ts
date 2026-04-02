@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { router, publicProcedure } from "../trpc"
 import { boards, boardColumns, tasks, users } from "../../db/schema"
-import { eq, asc, and, ne } from "drizzle-orm"
+import { eq, asc, and, ne, sql } from "drizzle-orm"
 
 export const boardRouter = router({
   list: publicProcedure
@@ -22,6 +22,11 @@ export const boardRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
+      await ctx.db.execute(sql`
+        alter table tasks
+        add column if not exists labels text[] not null default '{}'::text[]
+      `)
+
       const [board] = await ctx.db
         .select()
         .from(boards)
@@ -54,6 +59,7 @@ export const boardRouter = router({
           position: tasks.position,
           createdById: tasks.createdById,
           channelMessageId: tasks.channelMessageId,
+          labels: tasks.labels,
           createdAt: tasks.createdAt,
           updatedAt: tasks.updatedAt,
           assigneeName: users.name,
@@ -106,5 +112,38 @@ export const boardRouter = router({
       ])
 
       return board
+    }),
+
+  rename: publicProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        name: z.string().min(1).max(100),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [board] = await ctx.db
+        .update(boards)
+        .set({
+          name: input.name.trim(),
+        })
+        .where(eq(boards.id, input.id))
+        .returning()
+
+      return board ?? null
+    }),
+
+  delete: publicProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [deleted] = await ctx.db
+        .delete(boards)
+        .where(eq(boards.id, input.id))
+        .returning({ id: boards.id })
+      return { ok: Boolean(deleted), id: deleted?.id ?? input.id }
     }),
 })

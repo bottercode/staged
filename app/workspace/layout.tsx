@@ -1,12 +1,25 @@
-"use client"
-
+import { redirect } from "next/navigation"
+import { getServerSession } from "next-auth"
 import { Sidebar } from "@/components/sidebar"
+import { WorkspaceOnboarding } from "@/components/workspace-onboarding"
+import { bootstrapUserWorkspace } from "@/server/auth-bootstrap"
+import { authOptions } from "@/lib/auth"
 
-export default function WorkspaceLayout({
+export default async function WorkspaceLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user) {
+    redirect("/auth/signin")
+  }
+  const bootstrap = await bootstrapUserWorkspace(session.user)
+
+  if (!bootstrap.hasMembership) {
+    return <WorkspaceOnboarding />
+  }
+
   return (
     <div className="flex h-svh overflow-hidden">
       <Sidebar />

@@ -26,6 +26,7 @@ import { logConversationEvent } from "@/server/agent/history"
 import { resolveFallbackModelId } from "@/server/agent/models"
 
 export type QueryEngineConfig = {
+  userId?: string
   projectPath: string | null
   modelId?: string
   providerApiKeys?: ProviderApiKeys
@@ -129,8 +130,9 @@ export class QueryEngine {
           defaultCwd: process.cwd(),
           permissionMode: this.config.permissionMode,
           onPermissionDenied: (toolName, reason) => {
-            if (!this.config.conversationId) return
+            if (!this.config.userId || !this.config.conversationId) return
             void logConversationEvent(
+              this.config.userId,
               this.config.conversationId,
               "permission_denial",
               {
@@ -177,8 +179,13 @@ export class QueryEngine {
         if (!step.modelId) continue
         try {
           const compacted = compactMessages(hookMessages, step.mode)
-          if (compacted.compacted && this.config.conversationId) {
+          if (
+            compacted.compacted &&
+            this.config.userId &&
+            this.config.conversationId
+          ) {
             void logConversationEvent(
+              this.config.userId,
               this.config.conversationId,
               "compaction",
               {
@@ -188,10 +195,15 @@ export class QueryEngine {
               }
             )
           }
-          if (i > 0 && this.config.conversationId) {
-            void logConversationEvent(this.config.conversationId, "status", {
-              status: step.label,
-            })
+          if (i > 0 && this.config.userId && this.config.conversationId) {
+            void logConversationEvent(
+              this.config.userId,
+              this.config.conversationId,
+              "status",
+              {
+                status: step.label,
+              }
+            )
           }
 
           const modelMessages = await convertToModelMessages(compacted.messages)
