@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { router, publicProcedure } from "../trpc"
@@ -12,22 +13,18 @@ import {
 } from "../../db/schema"
 import { eq, asc, desc, inArray, sql } from "drizzle-orm"
 
-async function ensureTaskLabelsColumn(
-  db: {
-    execute: (query: unknown) => Promise<unknown>
-  }
-) {
+async function ensureTaskLabelsColumn(db: {
+  execute: (query: any) => Promise<unknown>
+}) {
   await db.execute(sql`
     alter table tasks
     add column if not exists labels text[] not null default '{}'::text[]
   `)
 }
 
-async function ensurePortalReviewColumns(
-  db: {
-    execute: (query: unknown) => Promise<unknown>
-  }
-) {
+async function ensurePortalReviewColumns(db: {
+  execute: (query: any) => Promise<unknown>
+}) {
   await db.execute(sql`
     alter table portal_updates
     add column if not exists reviewed_by_name text
@@ -290,9 +287,7 @@ export const portalRouter = router({
         portalId: z.string().uuid(),
         boardIds: z.array(z.string().uuid()).min(1),
         title: z.string().min(1).max(500),
-        section: z
-          .enum(["todo", "in_progress", "done"])
-          .default("todo"),
+        section: z.enum(["todo", "in_progress", "done"]).default("todo"),
         description: z.string().optional(),
         priority: z.enum(["low", "medium", "high", "urgent"]).default("medium"),
         dueDate: z.string().datetime().optional(),
@@ -326,9 +321,7 @@ export const portalRouter = router({
           id: boards.id,
         })
         .from(boards)
-        .where(
-          inArray(boards.id, uniqueBoardIds)
-        )
+        .where(inArray(boards.id, uniqueBoardIds))
 
       const allowedBoardIds = selectedBoards
         .map((board) => board.id)
@@ -371,7 +364,10 @@ export const portalRouter = router({
         .where(inArray(boardColumns.boardId, allowedBoardIds))
         .orderBy(asc(boardColumns.position))
 
-      const columnsByBoard = new Map<string, Array<{ id: string; name: string }>>()
+      const columnsByBoard = new Map<
+        string,
+        Array<{ id: string; name: string }>
+      >()
       for (const column of allColumns) {
         const list = columnsByBoard.get(column.boardId) ?? []
         list.push({ id: column.id, name: column.name })
@@ -402,7 +398,8 @@ export const portalRouter = router({
       for (const boardId of allowedBoardIds) {
         const cols = columnsByBoard.get(boardId) ?? []
         const matched =
-          cols.find((col) => sectionMatchers[input.section](col.name)) ?? cols[0]
+          cols.find((col) => sectionMatchers[input.section](col.name)) ??
+          cols[0]
         const columnId = matched?.id
         if (!columnId) continue
 

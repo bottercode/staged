@@ -12,7 +12,6 @@ import {
   Send,
   ChevronDown,
   ChevronRight,
-
 } from "lucide-react"
 import { trpc } from "@/lib/trpc/client"
 import { Button } from "@/components/ui/button"
@@ -40,7 +39,8 @@ function ProgressBar({ percentage }: { percentage: number }) {
 }
 
 export default function ClientPortalPage() {
-  const { slug } = useParams<{ slug: string }>()
+  const params = useParams<{ slug: string }>()
+  const slug = params?.slug ?? ""
   const [clientName, setClientName] = useState("")
   const [commentTexts, setCommentTexts] = useState<Record<string, string>>({})
   const [expandedComments, setExpandedComments] = useState<Set<string>>(

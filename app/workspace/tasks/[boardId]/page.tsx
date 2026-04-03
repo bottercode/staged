@@ -19,7 +19,11 @@ import { CreateTaskDialog } from "@/components/tasks/create-task-dialog"
 import { TaskDetailDialog } from "@/components/tasks/task-detail-dialog"
 import type { TaskData } from "@/components/tasks/task-card"
 import { Button } from "@/components/ui/button"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
@@ -56,13 +60,21 @@ function moveTaskInColumns(params: {
   position: number
   tasks: TaskData[]
 }> {
-  const { columns, taskId, sourceColumnId, destinationColumnId, destinationIndex } = params
+  const {
+    columns,
+    taskId,
+    sourceColumnId,
+    destinationColumnId,
+    destinationIndex,
+  } = params
   const next = columns.map((column) => ({
     ...column,
     tasks: [...column.tasks],
   }))
   const sourceColumn = next.find((column) => column.id === sourceColumnId)
-  const destinationColumn = next.find((column) => column.id === destinationColumnId)
+  const destinationColumn = next.find(
+    (column) => column.id === destinationColumnId
+  )
   if (!sourceColumn || !destinationColumn) return columns
 
   const idx = sourceColumn.tasks.findIndex((task) => task.id === taskId)
@@ -77,17 +89,21 @@ function moveTaskInColumns(params: {
 }
 
 export default function BoardPage() {
-  const { boardId } = useParams<{ boardId: string }>()
+  const params = useParams<{ boardId: string }>()
+  const boardId = params?.boardId ?? ""
   const [viewMode, setViewMode] = useState<ViewMode>("board")
   const [createInColumn, setCreateInColumn] = useState<{
     id: string
     name: string
   } | null>(null)
   const [selectedTask, setSelectedTask] = useState<TaskData | null>(null)
-  const [labelDraftByTask, setLabelDraftByTask] = useState<Record<string, string>>({})
+  const [labelDraftByTask, setLabelDraftByTask] = useState<
+    Record<string, string>
+  >({})
   const [filterOpen, setFilterOpen] = useState(false)
   const [filters, setFilters] = useState<TaskFilters>(EMPTY_FILTERS)
-  const [pendingFilters, setPendingFilters] = useState<TaskFilters>(EMPTY_FILTERS)
+  const [pendingFilters, setPendingFilters] =
+    useState<TaskFilters>(EMPTY_FILTERS)
   const { data: board } = trpc.board.getById.useQuery({
     id: boardId,
   })
@@ -137,7 +153,9 @@ export default function BoardPage() {
     }
     if (
       filters.priorities.length > 0 &&
-      !filters.priorities.includes(task.priority as "urgent" | "high" | "medium" | "low")
+      !filters.priorities.includes(
+        task.priority as "urgent" | "high" | "medium" | "low"
+      )
     ) {
       return false
     }
@@ -211,20 +229,27 @@ export default function BoardPage() {
     destinationColumnId: string
     destinationIndex: number
   }) => {
-    const { taskId, sourceColumnId, destinationColumnId, destinationIndex } = params
+    const { taskId, sourceColumnId, destinationColumnId, destinationIndex } =
+      params
     const queryInput = { id: boardId }
     const previous = utils.board.getById.getData(queryInput)
     utils.board.getById.setData(queryInput, (current) => {
       if (!current) return current
+      const newColumns = moveTaskInColumns({
+        columns: current.columns as Array<{
+          id: string
+          name: string
+          position: number
+          tasks: TaskData[]
+        }>,
+        taskId,
+        sourceColumnId,
+        destinationColumnId,
+        destinationIndex,
+      })
       return {
         ...current,
-        columns: moveTaskInColumns({
-          columns: current.columns,
-          taskId,
-          sourceColumnId,
-          destinationColumnId,
-          destinationIndex,
-        }),
+        columns: newColumns as typeof current.columns,
       }
     })
 
@@ -273,14 +298,12 @@ export default function BoardPage() {
                 pendingFilters.statuses.length,
               ].reduce((sum, value) => sum + value, 0) > 0 ? (
                 <span className="ml-1 rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary">
-                  {
-                    [
-                      filters.assigneeIds.length,
-                      filters.priorities.length,
-                      filters.labels.length,
-                      filters.statuses.length,
-                    ].reduce((sum, value) => sum + value, 0)
-                  }
+                  {[
+                    filters.assigneeIds.length,
+                    filters.priorities.length,
+                    filters.labels.length,
+                    filters.statuses.length,
+                  ].reduce((sum, value) => sum + value, 0)}
                 </span>
               ) : null}
             </button>
@@ -298,7 +321,9 @@ export default function BoardPage() {
                         type="button"
                         className={cn(
                           "rounded-full p-0.5 ring-2 ring-transparent",
-                          active ? "ring-primary" : "hover:ring-muted-foreground/40"
+                          active
+                            ? "ring-primary"
+                            : "hover:ring-muted-foreground/40"
                         )}
                         onClick={() =>
                           setPendingFilters((prev) => ({
@@ -340,14 +365,23 @@ export default function BoardPage() {
                         type="button"
                         className={cn(
                           "rounded-md border px-3 py-1 text-sm",
-                          active ? "border-primary bg-primary/10 text-primary" : "hover:bg-muted"
+                          active
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "hover:bg-muted"
                         )}
                         onClick={() =>
                           setPendingFilters((prev) => ({
                             ...prev,
                             priorities: active
                               ? prev.priorities.filter((p) => p !== option.key)
-                              : [...prev.priorities, option.key as "urgent" | "high" | "medium" | "low"],
+                              : [
+                                  ...prev.priorities,
+                                  option.key as
+                                    | "urgent"
+                                    | "high"
+                                    | "medium"
+                                    | "low",
+                                ],
                           }))
                         }
                       >
@@ -362,7 +396,9 @@ export default function BoardPage() {
                 <p className="mb-2 text-sm font-medium">Labels</p>
                 <div className="flex flex-wrap gap-2">
                   {allLabels.length === 0 ? (
-                    <span className="text-sm text-muted-foreground">No labels found</span>
+                    <span className="text-sm text-muted-foreground">
+                      No labels found
+                    </span>
                   ) : (
                     allLabels.map((label) => {
                       const active = pendingFilters.labels.includes(label)
@@ -372,7 +408,9 @@ export default function BoardPage() {
                           type="button"
                           className={cn(
                             "rounded-md border px-3 py-1 text-sm",
-                            active ? "border-primary bg-primary/10 text-primary" : "hover:bg-muted"
+                            active
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "hover:bg-muted"
                           )}
                           onClick={() =>
                             setPendingFilters((prev) => ({
@@ -402,7 +440,9 @@ export default function BoardPage() {
                         type="button"
                         className={cn(
                           "rounded-md border px-3 py-1 text-sm",
-                          active ? "border-primary bg-primary/10 text-primary" : "hover:bg-muted"
+                          active
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "hover:bg-muted"
                         )}
                         onClick={() =>
                           setPendingFilters((prev) => ({
@@ -511,7 +551,10 @@ export default function BoardPage() {
               </tr>
 
               {filteredRows.map((task) => (
-                <tr key={task.id} className="border-b align-top hover:bg-muted/20">
+                <tr
+                  key={task.id}
+                  className="border-b align-top hover:bg-muted/20"
+                >
                   <td className="px-4 py-4">
                     <button
                       type="button"
@@ -523,7 +566,9 @@ export default function BoardPage() {
                         })
                       }
                     >
-                      <div className="font-medium text-foreground">{task.title}</div>
+                      <div className="font-medium text-foreground">
+                        {task.title}
+                      </div>
                       {task.description ? (
                         <div className="mt-1 line-clamp-1 text-muted-foreground">
                           {task.description}
@@ -619,13 +664,17 @@ export default function BoardPage() {
                               }
                             >
                               <Avatar className="h-6 w-6">
-                                <AvatarImage src={user.avatarUrl ?? undefined} />
+                                <AvatarImage
+                                  src={user.avatarUrl ?? undefined}
+                                />
                                 <AvatarFallback className="text-[10px]">
                                   {user.name.charAt(0).toUpperCase()}
                                 </AvatarFallback>
                               </Avatar>
                               <div className="min-w-0">
-                                <div className="truncate text-sm">{user.name}</div>
+                                <div className="truncate text-sm">
+                                  {user.name}
+                                </div>
                                 <div className="truncate text-xs text-muted-foreground">
                                   {user.email}
                                 </div>
@@ -655,7 +704,9 @@ export default function BoardPage() {
                           type="date"
                           defaultValue={
                             task.dueDate
-                              ? new Date(task.dueDate).toISOString().slice(0, 10)
+                              ? new Date(task.dueDate)
+                                  .toISOString()
+                                  .slice(0, 10)
                               : ""
                           }
                           onChange={(e) =>
@@ -668,7 +719,9 @@ export default function BoardPage() {
                               },
                               {
                                 dueDate: e.target.value
-                                  ? new Date(`${e.target.value}T00:00:00`).toISOString()
+                                  ? new Date(
+                                      `${e.target.value}T00:00:00`
+                                    ).toISOString()
                                   : null,
                               }
                             )
@@ -763,7 +816,9 @@ export default function BoardPage() {
                           onKeyDown={(e) => {
                             if (e.key !== "Enter") return
                             e.preventDefault()
-                            const raw = (labelDraftByTask[task.id] ?? "").trim().toLowerCase()
+                            const raw = (labelDraftByTask[task.id] ?? "")
+                              .trim()
+                              .toLowerCase()
                             if (!raw) return
                             const current = task.labels ?? []
                             if (current.includes(raw)) return
@@ -783,7 +838,13 @@ export default function BoardPage() {
                           }}
                         />
                         <div className="mt-2 flex flex-wrap gap-1">
-                          {["bug", "backend", "frontend", "urgent", "design"].map((label) => {
+                          {[
+                            "bug",
+                            "backend",
+                            "frontend",
+                            "urgent",
+                            "design",
+                          ].map((label) => {
                             const current = task.labels ?? []
                             const exists = current.includes(label)
                             return (
@@ -793,7 +854,9 @@ export default function BoardPage() {
                                 disabled={exists}
                                 className={cn(
                                   "rounded-md border px-2 py-1 text-xs",
-                                  exists ? "cursor-default opacity-50" : "hover:bg-muted"
+                                  exists
+                                    ? "cursor-default opacity-50"
+                                    : "hover:bg-muted"
                                 )}
                                 onClick={() => {
                                   if (exists) return
@@ -823,10 +886,14 @@ export default function BoardPage() {
                                 optimisticTaskUpdate(
                                   task.id,
                                   {
-                                    labels: (task.labels ?? []).filter((item) => item !== label),
+                                    labels: (task.labels ?? []).filter(
+                                      (item) => item !== label
+                                    ),
                                   },
                                   {
-                                    labels: (task.labels ?? []).filter((item) => item !== label),
+                                    labels: (task.labels ?? []).filter(
+                                      (item) => item !== label
+                                    ),
                                   }
                                 )
                               }

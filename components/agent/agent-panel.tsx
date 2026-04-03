@@ -1,7 +1,7 @@
 "use client"
 
 import { SessionTabs, type Session } from "./session-tabs"
-import { useChat } from "@ai-sdk/react"
+import { useChat, type CreateUIMessage } from "@ai-sdk/react"
 import { type UIMessage } from "ai"
 import { useState, useRef, useEffect, useMemo, useCallback } from "react"
 import {
@@ -65,6 +65,8 @@ type AgentMessagePart = {
   input?: unknown
   output?: unknown
   state?: string
+  mediaType?: string
+  url?: string
   toolInvocation?: {
     toolName?: string
     args?: unknown
@@ -172,13 +174,82 @@ function getToolSummary(
 // ── Tool call block (collapsible) ────────────────────────
 
 const SPINNER_VERBS = [
-  "Basting", "Bubbling", "Calibrating", "Clarifying", "Conjuring", "Decanting", "Decoding", "Decocting", "Distilling", "Enkindling", "Extrapolating", "Fiddling", "Fomenting", "Frying", "Galvanizing", "Glazing", "Grating", "Interpolating", "Invoking", "Juggling", "Macerating", "Mashing", "Poaching", "Rendering", "Roasting", "Scaffolding", "Sculpting", "Sizzling", "Smelting", "Stirring", "Stitching", "Torching", "Unspooling", "Weaving", "Welding", "Zapping"
-];
+  "Basting",
+  "Bubbling",
+  "Calibrating",
+  "Clarifying",
+  "Conjuring",
+  "Decanting",
+  "Decoding",
+  "Decocting",
+  "Distilling",
+  "Enkindling",
+  "Extrapolating",
+  "Fiddling",
+  "Fomenting",
+  "Frying",
+  "Galvanizing",
+  "Glazing",
+  "Grating",
+  "Interpolating",
+  "Invoking",
+  "Juggling",
+  "Macerating",
+  "Mashing",
+  "Poaching",
+  "Rendering",
+  "Roasting",
+  "Scaffolding",
+  "Sculpting",
+  "Sizzling",
+  "Smelting",
+  "Stirring",
+  "Stitching",
+  "Torching",
+  "Unspooling",
+  "Weaving",
+  "Welding",
+  "Zapping",
+]
 
 const FINISHED_VERBS = [
-  "Basted", "Bubbled", "Calibrated", "Clarified", "Conjured", "Decanted", "Decoded", "Decocted", "Distilled", "Enkindled", "Extrapolated", "Fiddled", "Fomented", "Fried", "Galvanized", "Glazed", "Grated", "Interpolated", "Invoked", "Juggled", "Macerated", "Mashed", "Poached", "Rendered", "Roasted", "Scaffolded", "Sculpted", "Sizzled", "Smelted", "Stirred", "Stitched", "Torched", "Unspooled", "Woven", "Welded", "Zapped"
-];
-
+  "Basted",
+  "Bubbled",
+  "Calibrated",
+  "Clarified",
+  "Conjured",
+  "Decanted",
+  "Decoded",
+  "Decocted",
+  "Distilled",
+  "Enkindled",
+  "Extrapolated",
+  "Fiddled",
+  "Fomented",
+  "Fried",
+  "Galvanized",
+  "Glazed",
+  "Grated",
+  "Interpolated",
+  "Invoked",
+  "Juggled",
+  "Macerated",
+  "Mashed",
+  "Poached",
+  "Rendered",
+  "Roasted",
+  "Scaffolded",
+  "Sculpted",
+  "Sizzled",
+  "Smelted",
+  "Stirred",
+  "Stitched",
+  "Torched",
+  "Unspooled",
+  "Woven",
+  "Welded",
+  "Zapped",
+]
 
 function ToolCallBlock({
   toolName,
@@ -481,7 +552,10 @@ function TaskSelector({
   ).sort()
 
   const visibleTasks = tasks.filter((task) => {
-    if (boardFilter !== "all" && (task.boardName || "Unknown") !== boardFilter) {
+    if (
+      boardFilter !== "all" &&
+      (task.boardName || "Unknown") !== boardFilter
+    ) {
       return false
     }
     const q = query.trim().toLowerCase()
@@ -539,7 +613,9 @@ function TaskSelector({
           />
           <div className="mt-2 max-h-64 space-y-1 overflow-y-auto">
             {visibleTasks.length === 0 ? (
-              <p className="px-2 py-4 text-xs text-muted-foreground">No tasks found</p>
+              <p className="px-2 py-4 text-xs text-muted-foreground">
+                No tasks found
+              </p>
             ) : (
               visibleTasks.map((task) => {
                 const checked = selectedTaskIds.includes(task.id)
@@ -553,14 +629,20 @@ function TaskSelector({
                     )}
                   >
                     <span className="mt-0.5 text-muted-foreground">
-                      {checked ? <Check className="h-3.5 w-3.5" /> : <span className="inline-block h-3.5 w-3.5 rounded border" />}
+                      {checked ? (
+                        <Check className="h-3.5 w-3.5" />
+                      ) : (
+                        <span className="inline-block h-3.5 w-3.5 rounded border" />
+                      )}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium text-foreground">
                         {task.title}
                       </span>
                       <span className="block truncate text-muted-foreground">
-                        {[task.boardName, task.columnName].filter(Boolean).join(" • ")}
+                        {[task.boardName, task.columnName]
+                          .filter(Boolean)
+                          .join(" • ")}
                       </span>
                     </span>
                   </button>
@@ -1002,21 +1084,33 @@ export function AgentPanel() {
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setSelectedTaskIds([])
       }
-      setResponseStats(prev => {
+      setResponseStats((prev) => {
         if (!prev.startTime || prev.endTime) return prev
         const finishedIdx = Math.floor(Math.random() * FINISHED_VERBS.length)
-        return { ...prev, endTime: Date.now(), finishedVerb: FINISHED_VERBS[finishedIdx] }
+        return {
+          ...prev,
+          endTime: Date.now(),
+          finishedVerb: FINISHED_VERBS[finishedIdx],
+        }
       })
       return
     }
-    setResponseStats(prev => ({ ...prev, startTime: prev.startTime || Date.now(), endTime: null, finishedVerb: null }))
-    setLoadingVerb(SPINNER_VERBS[Math.floor(Math.random() * SPINNER_VERBS.length)])
+    setResponseStats((prev) => ({
+      ...prev,
+      startTime: prev.startTime || Date.now(),
+      endTime: null,
+      finishedVerb: null,
+    }))
+    setLoadingVerb(
+      SPINNER_VERBS[Math.floor(Math.random() * SPINNER_VERBS.length)]
+    )
     const interval = setInterval(() => {
-      setLoadingVerb(SPINNER_VERBS[Math.floor(Math.random() * SPINNER_VERBS.length)])
+      setLoadingVerb(
+        SPINNER_VERBS[Math.floor(Math.random() * SPINNER_VERBS.length)]
+      )
     }, 3000)
     return () => clearInterval(interval)
   }, [isLoading])
-
 
   // Load session messages when switching tabs
   useEffect(() => {
@@ -1251,12 +1345,12 @@ export function AgentPanel() {
         setProjectPath(persisted.projectPath ?? null)
         setProjectInfo(persisted.projectInfo ?? null)
         setModelId(persisted.modelId || "anthropic:sonnet")
-        setPermissionMode(
-          persisted.permissionMode === "plan" ? "plan" : "edit"
-        )
+        setPermissionMode(persisted.permissionMode === "plan" ? "plan" : "edit")
         setRecentFolders(
           Array.isArray(persisted.recentFolders)
-            ? persisted.recentFolders.filter((value) => typeof value === "string")
+            ? persisted.recentFolders.filter(
+                (value) => typeof value === "string"
+              )
             : []
         )
         const store = persisted.projectSessionStore ?? {}
@@ -1284,7 +1378,10 @@ export function AgentPanel() {
               exists ? bucket.currentSessionId : bucket.sessions[0].id
             )
           }
-        } else if (Array.isArray(persisted.sessions) && persisted.sessions.length > 0) {
+        } else if (
+          Array.isArray(persisted.sessions) &&
+          persisted.sessions.length > 0
+        ) {
           setSessions(persisted.sessions)
           const exists = persisted.sessions.some(
             (session) => session.id === persisted.currentSessionId
@@ -1528,17 +1625,9 @@ export function AgentPanel() {
   const handleSend = useCallback(() => {
     if ((!input.trim() && !pastedImage) || isLoading) return
 
-    const parts: Array<{
-      type: "text" | "image"
-      text?: string
-      image?: string
-    }> = []
-    if (pastedImage) {
-      parts.push({ type: "image", image: pastedImage })
-    }
-    if (input.trim()) {
-      parts.push({ type: "text", text: input })
-    }
+    const files = pastedImage
+      ? [{ type: "file" as const, mediaType: "image/png", url: pastedImage }]
+      : undefined
 
     setInput("")
     setPastedImage(null)
@@ -1547,7 +1636,7 @@ export function AgentPanel() {
     }
 
     sendMessage(
-      { parts },
+      { text: input, files },
       {
         body: {
           projectPath: projectPath || "",
@@ -1615,25 +1704,31 @@ export function AgentPanel() {
     setInput("")
   }
 
-  const handleSwitchProject = useCallback(async (dirPath: string) => {
-    try {
-      const res = await fetch("/api/agent/validate-path", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: dirPath }),
-      })
-      const data: ProjectInfo = await res.json()
-      if (!data.valid) return
-      switchProjectContext(data.path, data)
-      setGitBranch(null)
-      setShowSwitchBrowser(false)
-      setRecentFolders((prev) =>
-        [data.path, ...prev.filter((entry) => entry !== data.path)].slice(0, 5)
-      )
-    } catch {
-      // ignore
-    }
-  }, [switchProjectContext])
+  const handleSwitchProject = useCallback(
+    async (dirPath: string) => {
+      try {
+        const res = await fetch("/api/agent/validate-path", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: dirPath }),
+        })
+        const data: ProjectInfo = await res.json()
+        if (!data.valid) return
+        switchProjectContext(data.path, data)
+        setGitBranch(null)
+        setShowSwitchBrowser(false)
+        setRecentFolders((prev) =>
+          [data.path, ...prev.filter((entry) => entry !== data.path)].slice(
+            0,
+            5
+          )
+        )
+      } catch {
+        // ignore
+      }
+    },
+    [switchProjectContext]
+  )
 
   // ── Connect screen ──
   if (!projectPath) {
@@ -1641,7 +1736,9 @@ export function AgentPanel() {
       <ConnectScreen
         onConnect={(path, info) => {
           switchProjectContext(path, info)
-          setRecentFolders((prev) => [path, ...prev.filter((p) => p !== path)].slice(0, 5))
+          setRecentFolders((prev) =>
+            [path, ...prev.filter((p) => p !== path)].slice(0, 5)
+          )
         }}
         recentFolders={recentFolders}
         onRemoveRecentFolder={(path) =>
@@ -1710,14 +1807,19 @@ export function AgentPanel() {
         </div>
       </div>
 
-      <Dialog open={showSwitchRepoDialog} onOpenChange={setShowSwitchRepoDialog}>
+      <Dialog
+        open={showSwitchRepoDialog}
+        onOpenChange={setShowSwitchRepoDialog}
+      >
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Switch Repository</DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
             {linkedRepos.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No linked repositories yet.</p>
+              <p className="text-sm text-muted-foreground">
+                No linked repositories yet.
+              </p>
             ) : (
               linkedRepos.map((repoPath) => {
                 const name = repoPath.split("/").pop() || repoPath
@@ -1737,9 +1839,13 @@ export function AgentPanel() {
                     <FolderOpen className="h-4 w-4 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
                       <div className="truncate font-medium">{name}</div>
-                      <div className="truncate text-xs text-muted-foreground">{repoPath}</div>
+                      <div className="truncate text-xs text-muted-foreground">
+                        {repoPath}
+                      </div>
                     </div>
-                    {isCurrent ? <Check className="h-4 w-4 text-primary" /> : null}
+                    {isCurrent ? (
+                      <Check className="h-4 w-4 text-primary" />
+                    ) : null}
                   </button>
                 )
               })
@@ -1755,7 +1861,10 @@ export function AgentPanel() {
             >
               Browse New Repo
             </Button>
-            <Button variant="ghost" onClick={() => setShowSwitchRepoDialog(false)}>
+            <Button
+              variant="ghost"
+              onClick={() => setShowSwitchRepoDialog(false)}
+            >
               Close
             </Button>
           </DialogFooter>
@@ -1885,13 +1994,14 @@ export function AgentPanel() {
                         )
                       }
                       if (
-                        part.type === "image" &&
-                        typeof part.image === "string"
+                        part.type === "file" &&
+                        part.mediaType?.startsWith("image") &&
+                        typeof part.url === "string"
                       ) {
                         return (
                           <img
                             key={i}
-                            src={part.image}
+                            src={part.url}
                             alt="User provided image"
                             className="max-h-64 rounded-lg"
                           />
@@ -2023,15 +2133,24 @@ export function AgentPanel() {
           })}
 
           {isLoading ? (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-4">
+            <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin text-primary/70" />
-              <span className="font-mono text-primary/70">{loadingVerb}...</span>
+              <span className="font-mono text-primary/70">
+                {loadingVerb}...
+              </span>
             </div>
-          ) : responseStats.endTime && responseStats.startTime && messages.length > 0 ? (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-4">
+          ) : responseStats.endTime &&
+            responseStats.startTime &&
+            messages.length > 0 ? (
+            <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
               <span className="h-2 w-2 rounded-full bg-green-500/80" />
               <span className="font-mono text-green-600/80 dark:text-green-400/80">
-                {responseStats.finishedVerb}! ({( (responseStats.endTime - responseStats.startTime) / 1000 ).toFixed(1)}s)
+                {responseStats.finishedVerb}! (
+                {(
+                  (responseStats.endTime - responseStats.startTime) /
+                  1000
+                ).toFixed(1)}
+                s)
               </span>
             </div>
           ) : null}

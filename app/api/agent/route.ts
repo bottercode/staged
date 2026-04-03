@@ -242,7 +242,10 @@ export async function POST(req: Request) {
   } = await req.json()
   const normalizedSelectedTasks = normalizeSelectedTasks(selectedTasks)
   const taskContext = buildTaskContext(normalizedSelectedTasks)
-  const preparedMessages = injectTaskContextIntoMessages(messages, taskContext)
+  const preparedMessages = injectTaskContextIntoMessages(
+    messages,
+    taskContext
+  ) as unknown[]
   const normalizedConversationId =
     typeof conversationId === "string" && conversationId.trim()
       ? conversationId.trim()
@@ -328,9 +331,14 @@ export async function POST(req: Request) {
                 })
               },
               onStatus: (status) => {
-                void logConversationEvent(userId, normalizedConversationId, "status", {
-                  status,
-                })
+                void logConversationEvent(
+                  userId,
+                  normalizedConversationId,
+                  "status",
+                  {
+                    status,
+                  }
+                )
                 writer.write({
                   type: "data-agent_status",
                   data: { status },
@@ -384,18 +392,23 @@ export async function POST(req: Request) {
             writer.write({ type: "text-delta", id, delta: result.finalText })
           }
 
-          void logConversationEvent(userId, normalizedConversationId, "turn_finish", {
-            isError: result.isError,
-            retryCount: result.retryCount,
-            emittedTextLength: emittedText.length || result.emittedTextLength,
-            usage: estimateRunCost({
-              provider: resolvedProvider,
-              inputTokens: inputUsage.inputTokens,
-              outputTokens: Math.ceil(
-                (emittedText.length || result.emittedTextLength || 0) / 4
-              ),
-            }),
-          })
+          void logConversationEvent(
+            userId,
+            normalizedConversationId,
+            "turn_finish",
+            {
+              isError: result.isError,
+              retryCount: result.retryCount,
+              emittedTextLength: emittedText.length || result.emittedTextLength,
+              usage: estimateRunCost({
+                provider: resolvedProvider,
+                inputTokens: inputUsage.inputTokens,
+                outputTokens: Math.ceil(
+                  (emittedText.length || result.emittedTextLength || 0) / 4
+                ),
+              }),
+            }
+          )
 
           if (textId) {
             writer.write({ type: "text-end", id: textId })
@@ -408,9 +421,14 @@ export async function POST(req: Request) {
         } catch (error) {
           const errorText =
             error instanceof Error ? error.message : "Unknown error"
-          void logConversationEvent(userId, normalizedConversationId, "turn_error", {
-            errorText,
-          })
+          void logConversationEvent(
+            userId,
+            normalizedConversationId,
+            "turn_error",
+            {
+              errorText,
+            }
+          )
           writer.write({ type: "start" })
           const id = randomUUID()
           writer.write({ type: "text-start", id })

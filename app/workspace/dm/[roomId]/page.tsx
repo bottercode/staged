@@ -13,7 +13,8 @@ import { CreateTaskFromMessageDialog } from "@/components/create-task-from-messa
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
 export default function DmPage() {
-  const { roomId } = useParams<{ roomId: string }>()
+  const params = useParams<{ roomId: string }>()
+  const roomId = params?.roomId ?? ""
   const { currentUser } = useCurrentUser()
   const [taskMessage, setTaskMessage] = useState<Message | null>(null)
   const [preferredWorkspaceId, setPreferredWorkspaceId] = useState<
@@ -84,11 +85,9 @@ export default function DmPage() {
       {/* Input */}
       <MessageInput
         placeholder={`Message ${otherUser?.name ?? "..."}...`}
-        mentionUsers={
-          (users ?? [])
-            .filter((u) => u.id !== currentUser?.id)
-            .map((u) => ({ id: u.id, name: u.name }))
-        }
+        mentionUsers={(users ?? [])
+          .filter((u) => u.id !== currentUser?.id)
+          .map((u) => ({ id: u.id, name: u.name }))}
         onSend={(content) => {
           if (!currentUser) return
           sendMessage.mutate({

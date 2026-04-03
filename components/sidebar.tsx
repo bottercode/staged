@@ -13,6 +13,8 @@ import {
   MoreHorizontal,
   Pencil,
   Trash2,
+  LayoutGrid,
+  Globe,
 } from "lucide-react"
 import { useRouter, usePathname } from "next/navigation"
 import { skipToken } from "@tanstack/react-query"

@@ -24,7 +24,8 @@ import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
 export default function ChannelPage() {
-  const { channelId } = useParams<{ channelId: string }>()
+  const params = useParams<{ channelId: string }>()
+  const channelId = params?.channelId ?? ""
   const { currentUser } = useCurrentUser()
   const [threadId, setThreadId] = useState<string | null>(null)
   const [taskMessage, setTaskMessage] = useState<Message | null>(null)
@@ -45,7 +46,9 @@ export default function ChannelPage() {
     preferredWorkspaceId ? { preferredWorkspaceId } : undefined
   )
   const { data: channel } = trpc.channel.getById.useQuery({ id: channelId })
-  const { data: channelMembers } = trpc.channel.getMembers.useQuery({ channelId })
+  const { data: channelMembers } = trpc.channel.getMembers.useQuery({
+    channelId,
+  })
   const { data: workspaceMembers } = trpc.workspace.getMembers.useQuery(
     workspace ? { workspaceId: workspace.id } : skipToken
   )
@@ -64,7 +67,9 @@ export default function ChannelPage() {
     onSuccess: async () => {
       await Promise.all([
         utils.message.list.invalidate({ channelId }),
-        threadId ? utils.message.thread.invalidate({ parentId: threadId }) : Promise.resolve(),
+        threadId
+          ? utils.message.thread.invalidate({ parentId: threadId })
+          : Promise.resolve(),
       ])
     },
   })
@@ -76,7 +81,9 @@ export default function ChannelPage() {
     },
   })
 
-  const currentMemberRole = workspaceMembers?.find((m) => m.userId === currentUser?.id)?.role
+  const currentMemberRole = workspaceMembers?.find(
+    (m) => m.userId === currentUser?.id
+  )?.role
   const isAdmin = currentMemberRole === "admin"
 
   return (
@@ -99,7 +106,10 @@ export default function ChannelPage() {
             <div className="ml-auto flex items-center gap-3">
               <div className="flex items-center -space-x-2">
                 {(channelMembers ?? []).slice(0, 5).map((member) => (
-                  <Avatar key={member.id} className="h-6 w-6 border-2 border-background">
+                  <Avatar
+                    key={member.id}
+                    className="h-6 w-6 border-2 border-background"
+                  >
                     <AvatarImage src={member.avatarUrl ?? undefined} />
                     <AvatarFallback className="text-[10px]">
                       {member.name?.[0]?.toUpperCase() ?? "U"}
@@ -146,11 +156,9 @@ export default function ChannelPage() {
         {/* Input */}
         <MessageInput
           placeholder={`Message #${channel?.name ?? "channel"}...`}
-          mentionUsers={
-            (users ?? [])
-              .filter((u) => u.id !== currentUser?.id)
-              .map((u) => ({ id: u.id, name: u.name }))
-          }
+          mentionUsers={(users ?? [])
+            .filter((u) => u.id !== currentUser?.id)
+            .map((u) => ({ id: u.id, name: u.name }))}
           onSend={(content) => {
             if (!currentUser) return
             sendMessage.mutate({
@@ -229,7 +237,9 @@ export default function ChannelPage() {
                   <p className="text-sm font-medium">Description</p>
                   <Input
                     value={draftDescription}
-                    onChange={(event) => setDraftDescription(event.target.value)}
+                    onChange={(event) =>
+                      setDraftDescription(event.target.value)
+                    }
                     placeholder="Channel description"
                   />
                 </div>
@@ -238,8 +248,8 @@ export default function ChannelPage() {
               <div className="max-h-72 space-y-2 overflow-auto">
                 {(channelMembers ?? []).map((member) => {
                   const role =
-                    workspaceMembers?.find((wm) => wm.userId === member.id)?.role ??
-                    "member"
+                    workspaceMembers?.find((wm) => wm.userId === member.id)
+                      ?.role ?? "member"
                   return (
                     <div
                       key={member.id}
@@ -253,7 +263,9 @@ export default function ChannelPage() {
                           </AvatarFallback>
                         </Avatar>
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{member.name}</p>
+                          <p className="truncate text-sm font-medium">
+                            {member.name}
+                          </p>
                           <p className="truncate text-xs text-muted-foreground">
                             {member.email}
                           </p>
@@ -269,11 +281,18 @@ export default function ChannelPage() {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowChannelSettings(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setShowChannelSettings(false)}
+            >
               Cancel
             </Button>
             <Button
-              disabled={settingsTab !== "about" || !draftName.trim() || updateChannel.isPending}
+              disabled={
+                settingsTab !== "about" ||
+                !draftName.trim() ||
+                updateChannel.isPending
+              }
               onClick={() => {
                 updateChannel.mutate({
                   id: channelId,

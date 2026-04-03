@@ -62,7 +62,10 @@ function moveTaskInColumns(params: {
   }
   if (!task) return columns
 
-  const safeIndex = Math.max(0, Math.min(destinationIndex, destinationColumn.tasks.length))
+  const safeIndex = Math.max(
+    0,
+    Math.min(destinationIndex, destinationColumn.tasks.length)
+  )
   destinationColumn.tasks.splice(safeIndex, 0, task)
 
   return next
@@ -110,47 +113,52 @@ export function BoardView({
 
     utils.board.getById.setData(allInput, (current) => {
       if (!current) return current
+      const newColumns = moveTaskInColumns({
+        columns: current.columns as Column[],
+        taskId: draggableId,
+        sourceColumnId: source.droppableId,
+        sourceIndex: source.index,
+        destinationColumnId: destination.droppableId,
+        destinationIndex: destination.index,
+      })
       return {
         ...current,
-        columns: moveTaskInColumns({
-          columns: current.columns,
-          taskId: draggableId,
-          sourceColumnId: source.droppableId,
-          sourceIndex: source.index,
-          destinationColumnId: destination.droppableId,
-          destinationIndex: destination.index,
-        }),
+        columns: newColumns as typeof current.columns,
       }
     })
 
     utils.board.getById.setData(activeInput, (current) => {
       if (!current) return current
+      const newColumns = moveTaskInColumns({
+        columns: current.columns as Column[],
+        taskId: draggableId,
+        sourceColumnId: source.droppableId,
+        sourceIndex: source.index,
+        destinationColumnId: destination.droppableId,
+        destinationIndex: destination.index,
+      })
       return {
         ...current,
-        columns: moveTaskInColumns({
-          columns: current.columns,
-          taskId: draggableId,
-          sourceColumnId: source.droppableId,
-          sourceIndex: source.index,
-          destinationColumnId: destination.droppableId,
-          destinationIndex: destination.index,
-        }),
+        columns: newColumns as typeof current.columns,
       }
     })
 
-    moveTask.mutate({
-      id: draggableId,
-      columnId: destination.droppableId,
-      position: destination.index,
-    }, {
-      onError: () => {
-        utils.board.getById.setData(allInput, previousAll)
-        utils.board.getById.setData(activeInput, previousActive)
+    moveTask.mutate(
+      {
+        id: draggableId,
+        columnId: destination.droppableId,
+        position: destination.index,
       },
-      onSettled: () => {
-        utils.board.getById.invalidate({ id: boardId })
-      },
-    })
+      {
+        onError: () => {
+          utils.board.getById.setData(allInput, previousAll)
+          utils.board.getById.setData(activeInput, previousActive)
+        },
+        onSettled: () => {
+          utils.board.getById.invalidate({ id: boardId })
+        },
+      }
+    )
   }
 
   return (

@@ -1,14 +1,13 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { router, publicProcedure } from "../trpc"
 import { taskComments, tasks, users } from "../../db/schema"
 import { eq, and, gte, sql, asc } from "drizzle-orm"
 
-async function ensureTaskCommentsTable(
-  db: {
-    execute: (query: unknown) => Promise<unknown>
-  }
-) {
+async function ensureTaskCommentsTable(db: {
+  execute: (query: any) => Promise<unknown>
+}) {
   await db.execute(sql`
     create table if not exists task_comments (
       id uuid primary key default gen_random_uuid(),
@@ -25,11 +24,9 @@ async function ensureTaskCommentsTable(
   `)
 }
 
-async function ensureTaskLabelsColumn(
-  db: {
-    execute: (query: unknown) => Promise<unknown>
-  }
-) {
+async function ensureTaskLabelsColumn(db: {
+  execute: (query: any) => Promise<unknown>
+}) {
   await db.execute(sql`
     alter table tasks
     add column if not exists labels text[] not null default '{}'::text[]

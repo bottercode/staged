@@ -69,7 +69,8 @@ function formatShortDate(date: Date) {
 }
 
 export default function PortalManagePage() {
-  const { portalId } = useParams<{ portalId: string }>()
+  const params = useParams<{ portalId: string }>()
+  const portalId = params?.portalId ?? ""
   const { currentUser } = useCurrentUser()
   const [newUpdate, setNewUpdate] = useState("")
   const [updateType, setUpdateType] = useState<"update" | "deliverable">(
@@ -150,7 +151,9 @@ export default function PortalManagePage() {
   }
 
   const copyLink = () => {
-    navigator.clipboard.writeText(window.location.origin + `/portal/${portal?.slug}`)
+    navigator.clipboard.writeText(
+      window.location.origin + `/portal/${portal?.slug}`
+    )
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -195,7 +198,12 @@ export default function PortalManagePage() {
           {portal.status}
         </span>
         <div className="ml-auto flex items-center gap-2">
-          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={copyLink}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={copyLink}
+          >
             {copied ? (
               <Check className="mr-1 h-3 w-3" />
             ) : (
@@ -203,11 +211,7 @@ export default function PortalManagePage() {
             )}
             {copied ? "Copied" : "Copy link"}
           </Button>
-          <a
-            href={portalUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
+          <a href={portalUrl} target="_blank" rel="noopener noreferrer">
             <Button variant="outline" size="sm" className="h-7 text-xs">
               <ExternalLink className="mr-1 h-3 w-3" />
               Client view
@@ -220,10 +224,10 @@ export default function PortalManagePage() {
       <div className="flex flex-1 overflow-hidden">
         {/* Left sidebar — details + compose */}
         <div className="flex w-80 flex-shrink-0 flex-col border-r">
-          <div className="flex-1 overflow-y-auto p-4 space-y-5">
+          <div className="flex-1 space-y-5 overflow-y-auto p-4">
             {/* Client info card */}
             <div>
-              <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <h3 className="mb-2 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
                 Client
               </h3>
               <div className="rounded-lg border bg-card p-3">
@@ -246,32 +250,44 @@ export default function PortalManagePage() {
 
             {/* Stats */}
             <div>
-              <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <h3 className="mb-2 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
                 Overview
               </h3>
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-lg border bg-card px-3 py-2">
-                  <div className="text-lg font-bold">{portal.updates.length}</div>
-                  <div className="text-[11px] text-muted-foreground">Updates</div>
+                  <div className="text-lg font-bold">
+                    {portal.updates.length}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    Updates
+                  </div>
                 </div>
                 <div className="rounded-lg border bg-card px-3 py-2">
                   <div className="text-lg font-bold">{deliverableCount}</div>
-                  <div className="text-[11px] text-muted-foreground">Deliverables</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    Deliverables
+                  </div>
                 </div>
                 <div className="rounded-lg border bg-card px-3 py-2">
-                  <div className="text-lg font-bold text-emerald-600">{approvedCount}</div>
-                  <div className="text-[11px] text-muted-foreground">Approved</div>
+                  <div className="text-lg font-bold text-emerald-600">
+                    {approvedCount}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    Approved
+                  </div>
                 </div>
                 <div className="rounded-lg border bg-card px-3 py-2">
                   <div className="text-lg font-bold">{totalComments}</div>
-                  <div className="text-[11px] text-muted-foreground">Comments</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    Comments
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* Portal details */}
             <div>
-              <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <h3 className="mb-2 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
                 Details
               </h3>
               <div className="space-y-2 text-sm">
@@ -284,8 +300,12 @@ export default function PortalManagePage() {
                 </div>
                 {pendingCount > 0 && (
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Pending review</span>
-                    <span className="font-medium text-amber-600">{pendingCount}</span>
+                    <span className="text-muted-foreground">
+                      Pending review
+                    </span>
+                    <span className="font-medium text-amber-600">
+                      {pendingCount}
+                    </span>
                   </div>
                 )}
               </div>
@@ -293,7 +313,7 @@ export default function PortalManagePage() {
 
             {/* Compose update */}
             <div>
-              <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <h3 className="mb-2 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
                 Post update
               </h3>
               <form
@@ -346,7 +366,7 @@ export default function PortalManagePage() {
 
             {/* Create issue */}
             <div>
-              <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <h3 className="mb-2 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
                 Issues
               </h3>
               <div className="rounded-lg border bg-card p-3">
@@ -360,7 +380,8 @@ export default function PortalManagePage() {
                   onClick={() => {
                     if (!issueBoardIds.length && boards?.length) {
                       const defaultBoardId =
-                        portal.boardId && boards.some((b) => b.id === portal.boardId)
+                        portal.boardId &&
+                        boards.some((b) => b.id === portal.boardId)
                           ? portal.boardId
                           : boards[0]?.id
                       if (defaultBoardId) {
@@ -637,7 +658,12 @@ export default function PortalManagePage() {
           <form
             onSubmit={(e) => {
               e.preventDefault()
-              if (!currentUser || !portal || !issueTitle.trim() || issueBoardIds.length === 0) {
+              if (
+                !currentUser ||
+                !portal ||
+                !issueTitle.trim() ||
+                issueBoardIds.length === 0
+              ) {
                 return
               }
               createIssue.mutate({
@@ -650,7 +676,10 @@ export default function PortalManagePage() {
                 dueDate: issueDueDate
                   ? new Date(`${issueDueDate}T00:00:00`).toISOString()
                   : undefined,
-                assigneeId: issueAssigneeId === "unassigned" ? undefined : issueAssigneeId,
+                assigneeId:
+                  issueAssigneeId === "unassigned"
+                    ? undefined
+                    : issueAssigneeId,
                 labels: issueLabels
                   .split(",")
                   .map((label) => label.trim())
@@ -663,7 +692,7 @@ export default function PortalManagePage() {
             <div className="flex-1 overflow-y-auto">
               <div className="px-6 pt-6 pb-6">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+                  <div className="flex items-center gap-2 text-xs tracking-wide text-muted-foreground uppercase">
                     <span className="h-2 w-2 rounded-full bg-red-500" />
                     <span>Issue</span>
                   </div>
@@ -717,7 +746,11 @@ export default function PortalManagePage() {
                               : "P4"}
                       </button>
                     </PopoverTrigger>
-                    <PopoverContent side="bottom" align="start" className="w-auto p-1">
+                    <PopoverContent
+                      side="bottom"
+                      align="start"
+                      className="w-auto p-1"
+                    >
                       <div className="flex items-center gap-1">
                         {[
                           { id: "urgent", label: "P1" },
@@ -730,7 +763,11 @@ export default function PortalManagePage() {
                             type="button"
                             onClick={() =>
                               setIssuePriority(
-                                priority.id as "low" | "medium" | "high" | "urgent"
+                                priority.id as
+                                  | "low"
+                                  | "medium"
+                                  | "high"
+                                  | "urgent"
                               )
                             }
                             className={cn(
@@ -755,11 +792,17 @@ export default function PortalManagePage() {
                       >
                         <CalendarDays className="h-4 w-4" />
                         {issueDueDate
-                          ? new Date(`${issueDueDate}T00:00:00`).toLocaleDateString()
+                          ? new Date(
+                              `${issueDueDate}T00:00:00`
+                            ).toLocaleDateString()
                           : "No due date"}
                       </button>
                     </PopoverTrigger>
-                    <PopoverContent side="bottom" align="start" className="w-64 p-3">
+                    <PopoverContent
+                      side="bottom"
+                      align="start"
+                      className="w-64 p-3"
+                    >
                       <Input
                         type="date"
                         value={issueDueDate}
@@ -780,7 +823,11 @@ export default function PortalManagePage() {
                           : "Add label"}
                       </button>
                     </PopoverTrigger>
-                    <PopoverContent side="bottom" align="start" className="w-80 p-3">
+                    <PopoverContent
+                      side="bottom"
+                      align="start"
+                      className="w-80 p-3"
+                    >
                       <Input
                         value={issueLabels}
                         onChange={(e) => setIssueLabels(e.target.value)}
@@ -801,11 +848,16 @@ export default function PortalManagePage() {
                         <UserRound className="h-4 w-4" />
                         {issueAssigneeId === "unassigned"
                           ? "No assignees"
-                          : workspaceMembers?.find((member) => member.userId === issueAssigneeId)
-                              ?.name ?? "No assignees"}
+                          : (workspaceMembers?.find(
+                              (member) => member.userId === issueAssigneeId
+                            )?.name ?? "No assignees")}
                       </button>
                     </PopoverTrigger>
-                    <PopoverContent side="bottom" align="start" className="w-80 p-2">
+                    <PopoverContent
+                      side="bottom"
+                      align="start"
+                      className="w-80 p-2"
+                    >
                       <button
                         type="button"
                         onClick={() => setIssueAssigneeId("unassigned")}
@@ -824,17 +876,23 @@ export default function PortalManagePage() {
                             onClick={() => setIssueAssigneeId(member.userId)}
                             className={cn(
                               "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted",
-                              issueAssigneeId === member.userId ? "bg-muted" : ""
+                              issueAssigneeId === member.userId
+                                ? "bg-muted"
+                                : ""
                             )}
                           >
                             <Avatar className="h-6 w-6">
-                              <AvatarImage src={member.avatarUrl ?? undefined} />
+                              <AvatarImage
+                                src={member.avatarUrl ?? undefined}
+                              />
                               <AvatarFallback className="text-[10px]">
                                 {member.name.charAt(0).toUpperCase()}
                               </AvatarFallback>
                             </Avatar>
                             <div className="min-w-0">
-                              <div className="truncate text-sm">{member.name}</div>
+                              <div className="truncate text-sm">
+                                {member.name}
+                              </div>
                               <div className="truncate text-xs text-muted-foreground">
                                 {member.email}
                               </div>
@@ -857,7 +915,11 @@ export default function PortalManagePage() {
                           : `${issueBoardIds.length} board${issueBoardIds.length === 1 ? "" : "s"}`}
                       </button>
                     </PopoverTrigger>
-                    <PopoverContent side="bottom" align="start" className="w-80 p-2">
+                    <PopoverContent
+                      side="bottom"
+                      align="start"
+                      className="w-80 p-2"
+                    >
                       <div className="max-h-56 space-y-1 overflow-y-auto">
                         {boards?.map((board) => {
                           const selected = issueBoardIds.includes(board.id)
@@ -874,7 +936,8 @@ export default function PortalManagePage() {
                                 checked={selected}
                                 onChange={(e) => {
                                   setIssueBoardIds((prev) => {
-                                    if (e.target.checked) return [...prev, board.id]
+                                    if (e.target.checked)
+                                      return [...prev, board.id]
                                     return prev.filter((id) => id !== board.id)
                                   })
                                 }}
@@ -902,7 +965,9 @@ export default function PortalManagePage() {
                 />
 
                 {createIssue.error?.message && (
-                  <p className="mt-3 text-xs text-red-600">{createIssue.error.message}</p>
+                  <p className="mt-3 text-xs text-red-600">
+                    {createIssue.error.message}
+                  </p>
                 )}
               </div>
             </div>
@@ -912,7 +977,9 @@ export default function PortalManagePage() {
                 <Button
                   type="submit"
                   disabled={
-                    createIssue.isPending || !issueTitle.trim() || issueBoardIds.length === 0
+                    createIssue.isPending ||
+                    !issueTitle.trim() ||
+                    issueBoardIds.length === 0
                   }
                 >
                   {createIssue.isPending ? "Creating..." : "Create Issue"}

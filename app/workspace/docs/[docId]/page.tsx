@@ -19,7 +19,8 @@ function timeAgo(date: Date) {
 }
 
 export default function DocPage() {
-  const { docId } = useParams<{ docId: string }>()
+  const params = useParams<{ docId: string }>()
+  const docId = params?.docId ?? ""
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "idle">(
     "idle"
   )
@@ -96,7 +97,7 @@ export default function DocPage() {
           onKeyDown={handleTitleKeyDown}
           placeholder="Untitled"
           rows={1}
-          className="w-full resize-none bg-transparent text-4xl font-bold leading-tight outline-none placeholder:text-muted-foreground/40"
+          className="w-full resize-none bg-transparent text-4xl leading-tight font-bold outline-none placeholder:text-muted-foreground/40"
           style={{ overflow: "hidden" }}
           onInput={(e) => {
             const target = e.target as HTMLTextAreaElement
