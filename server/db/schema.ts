@@ -58,10 +58,9 @@ export const agentSessions = pgTable(
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
   (table) => ({
-    userConversationUnique: uniqueIndex("agent_sessions_user_conversation_uidx").on(
-      table.userId,
-      table.conversationId
-    ),
+    userConversationUnique: uniqueIndex(
+      "agent_sessions_user_conversation_uidx"
+    ).on(table.userId, table.conversationId),
     userUpdatedIdx: index("agent_sessions_user_updated_idx").on(
       table.userId,
       table.updatedAt
@@ -132,6 +131,7 @@ export const workspaceInviteLinks = pgTable("workspace_invite_links", {
     .references(() => workspaces.id, { onDelete: "cascade" }),
   token: text("token").notNull().unique(),
   isActive: boolean("is_active").notNull().default(true),
+  role: text("role").notNull().default("member"),
   createdById: uuid("created_by_id").references(() => users.id, {
     onDelete: "set null",
   }),

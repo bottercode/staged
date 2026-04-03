@@ -82,7 +82,10 @@ export const workspaceRouter = router({
             createdAt: workspaces.createdAt,
           })
           .from(workspaceMembers)
-          .innerJoin(workspaces, eq(workspaceMembers.workspaceId, workspaces.id))
+          .innerJoin(
+            workspaces,
+            eq(workspaceMembers.workspaceId, workspaces.id)
+          )
           .where(
             and(
               eq(workspaceMembers.userId, ctx.userId),
@@ -102,7 +105,10 @@ export const workspaceRouter = router({
             createdAt: workspaces.createdAt,
           })
           .from(workspaceMembers)
-          .innerJoin(workspaces, eq(workspaceMembers.workspaceId, workspaces.id))
+          .innerJoin(
+            workspaces,
+            eq(workspaceMembers.workspaceId, workspaces.id)
+          )
           .where(eq(workspaceMembers.userId, ctx.userId))
           .orderBy(desc(workspaces.createdAt))
           .limit(1)
@@ -158,17 +164,19 @@ export const workspaceRouter = router({
         }
         throw new TRPCError({
           code: "CONFLICT",
-          message: "Workspace name already exists. Please choose a different name.",
+          message:
+            "Workspace name already exists. Please choose a different name.",
         })
       }
 
-      const baseSlug = input.name
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9\s-]/g, "")
-        .replace(/\s+/g, "-")
-        .replace(/-+/g, "-")
-        .replace(/^-|-$/g, "") || "workspace"
+      const baseSlug =
+        input.name
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9\s-]/g, "")
+          .replace(/\s+/g, "-")
+          .replace(/-+/g, "-")
+          .replace(/^-|-$/g, "") || "workspace"
 
       let workspace:
         | {
@@ -181,7 +189,8 @@ export const workspaceRouter = router({
 
       // Ensure global unique slug across all workspaces, even when users pick same names.
       for (let attempt = 0; attempt < 20; attempt++) {
-        const candidateSlug = attempt === 0 ? baseSlug : `${baseSlug}-${attempt + 1}`
+        const candidateSlug =
+          attempt === 0 ? baseSlug : `${baseSlug}-${attempt + 1}`
         try {
           const [created] = await ctx.db
             .insert(workspaces)
@@ -209,13 +218,11 @@ export const workspaceRouter = router({
       }
 
       // Add creator as admin
-      await ctx.db
-        .insert(workspaceMembers)
-        .values({
-          workspaceId: workspace.id,
-          userId: ctx.userId,
-          role: "admin",
-        })
+      await ctx.db.insert(workspaceMembers).values({
+        workspaceId: workspace.id,
+        userId: ctx.userId,
+        role: "admin",
+      })
 
       // Auto-create default channels
       await ctx.db.insert(channels).values([
@@ -357,7 +364,9 @@ export const workspaceRouter = router({
         }).catch((error) => ({
           sent: false,
           reason:
-            error instanceof Error ? `runtime_error:${error.message}` : "runtime_error",
+            error instanceof Error
+              ? `runtime_error:${error.message}`
+              : "runtime_error",
         }))
 
         return {
@@ -392,7 +401,9 @@ export const workspaceRouter = router({
       }).catch((error) => ({
         sent: false,
         reason:
-          error instanceof Error ? `runtime_error:${error.message}` : "runtime_error",
+          error instanceof Error
+            ? `runtime_error:${error.message}`
+            : "runtime_error",
       }))
 
       return {
@@ -503,6 +514,7 @@ export const workspaceRouter = router({
         id: link.id,
         url: `${base}/join/${link.token}`,
         createdAt: link.createdAt,
+        role: link.role as "member" | "admin",
       }
     }),
 
@@ -510,6 +522,7 @@ export const workspaceRouter = router({
     .input(
       z.object({
         workspaceId: z.string().uuid(),
+        role: z.enum(["member", "admin"]).default("member"),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -525,6 +538,7 @@ export const workspaceRouter = router({
           workspaceId: input.workspaceId,
           token,
           isActive: true,
+          role: input.role,
           createdById: ctx.userId ?? null,
         })
         .returning()
@@ -579,7 +593,8 @@ export const workspaceRouter = router({
       if (nameConflict) {
         throw new TRPCError({
           code: "CONFLICT",
-          message: "Workspace name already exists. Please choose a different name.",
+          message:
+            "Workspace name already exists. Please choose a different name.",
         })
       }
 

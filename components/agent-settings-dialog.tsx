@@ -88,17 +88,11 @@ export function AgentSettingsDialog({
   const [newMcpName, setNewMcpName] = useState("")
   const [newMcpUrl, setNewMcpUrl] = useState("")
 
-  const [inviteEmail, setInviteEmail] = useState("")
-  const [inviteRole, setInviteRole] = useState<"member" | "admin">("member")
-  const [inviteNotice, setInviteNotice] = useState<string | null>(null)
+  const [linkRole, setLinkRole] = useState<"member" | "admin">("member")
   const [copiedInviteLink, setCopiedInviteLink] = useState(false)
 
   const utils = trpc.useUtils()
   const membersQuery = trpc.workspace.getMembers.useQuery(
-    workspaceId ? { workspaceId } : skipToken,
-    { enabled: open && tab === "members" }
-  )
-  const invitesQuery = trpc.workspace.listInvites.useQuery(
     workspaceId ? { workspaceId } : skipToken,
     { enabled: open && tab === "members" }
   )
@@ -107,31 +101,6 @@ export function AgentSettingsDialog({
     { enabled: open && tab === "members" }
   )
 
-  const inviteMember = trpc.workspace.inviteMember.useMutation({
-    onSuccess: async (result) => {
-      await Promise.all([
-        utils.workspace.getMembers.invalidate(),
-        utils.workspace.listInvites.invalidate(),
-        utils.user.list.invalidate(),
-        utils.dm.list.invalidate(),
-      ])
-      setInviteEmail("")
-      if (result?.emailSent === false) {
-        const errorText =
-          typeof result.emailError === "string" && result.emailError.length > 0
-            ? result.emailError
-            : "unknown email provider error"
-        setInviteNotice(`Invite saved, but email failed: ${errorText}`)
-      } else {
-        setInviteNotice(null)
-      }
-    },
-  })
-  const revokeInvite = trpc.workspace.revokeInvite.useMutation({
-    onSuccess: async () => {
-      await utils.workspace.listInvites.invalidate()
-    },
-  })
   const removeMember = trpc.workspace.removeMember.useMutation({
     onSuccess: async () => {
       await Promise.all([
@@ -247,7 +216,6 @@ export function AgentSettingsDialog({
     }
   }
 
-  const canInvite = Boolean(workspaceId && inviteEmail.trim())
   const sortedMembers = useMemo(() => {
     return [...(membersQuery.data || [])].sort((a, b) =>
       a.joinedAt < b.joinedAt ? 1 : -1
@@ -293,65 +261,30 @@ export function AgentSettingsDialog({
         {tab === "members" && (
           <div className="space-y-5">
             <div className="rounded-xl border bg-muted/10 p-4">
-              <p className="mb-2 text-sm font-medium text-muted-foreground">
-                Invite members
+              <p className="mb-3 text-sm font-medium text-muted-foreground">
+                Invite via workspace link
               </p>
-              <div className="grid w-full grid-cols-[minmax(0,1fr)_140px_90px] items-center gap-2">
-                <Input
-                  value={inviteEmail}
-                  placeholder="Enter email to invite"
-                  className="h-10 min-w-0"
-                  onChange={(event) => setInviteEmail(event.target.value)}
-                />
-                <select
-                  className="h-10 rounded-md border bg-background px-3 text-sm"
-                  value={inviteRole}
-                  onChange={(event) =>
-                    setInviteRole(event.target.value as "member" | "admin")
-                  }
-                >
-                  <option value="member">Member</option>
-                  <option value="admin">Admin</option>
-                </select>
-                <Button
-                  type="button"
-                  className="h-10"
-                  disabled={!canInvite || inviteMember.isPending}
-                  onClick={() => {
-                    if (!workspaceId) return
-                    inviteMember.mutate({
-                      workspaceId,
-                      email: inviteEmail.trim(),
-                      role: inviteRole,
-                    })
-                  }}
-                >
-                  {inviteMember.isPending ? "Inviting..." : "Invite"}
-                </Button>
-              </div>
-              {inviteMember.error?.message && (
-                <p className="mt-2 text-xs text-destructive">
-                  {inviteMember.error.message}
-                </p>
-              )}
-              {inviteNotice && (
-                <p className="mt-2 text-xs text-amber-600">{inviteNotice}</p>
-              )}
-              <div className="mt-3 border-t pt-3">
-                <p className="text-xs font-medium text-muted-foreground">
-                  Invite via workspace link
-                </p>
-                {inviteLinkQuery.data?.url ? (
-                  <div className="mt-2 flex items-center gap-2">
-                    <Input readOnly value={inviteLinkQuery.data.url} className="h-9" />
+              {inviteLinkQuery.data?.url ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      readOnly
+                      value={inviteLinkQuery.data.url}
+                      className="h-9"
+                    />
                     <Button
                       type="button"
                       variant="outline"
                       className="h-9"
                       onClick={async () => {
-                        await navigator.clipboard.writeText(inviteLinkQuery.data!.url)
+                        await navigator.clipboard.writeText(
+                          inviteLinkQuery.data!.url
+                        )
                         setCopiedInviteLink(true)
-                        window.setTimeout(() => setCopiedInviteLink(false), 1200)
+                        window.setTimeout(
+                          () => setCopiedInviteLink(false),
+                          1200
+                        )
                       }}
                     >
                       {copiedInviteLink ? "Copied" : "Copy"}
@@ -372,70 +305,39 @@ export function AgentSettingsDialog({
                       Revoke
                     </Button>
                   </div>
-                ) : (
-                  <div className="mt-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-9"
-                      disabled={createInviteLink.isPending || !workspaceId}
-                      onClick={() => {
-                        if (!workspaceId) return
-                        createInviteLink.mutate({ workspaceId })
-                      }}
-                    >
-                      {createInviteLink.isPending
-                        ? "Creating link..."
-                        : "Create workspace invite link"}
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-lg border p-3">
-              <p className="text-xs tracking-wider text-muted-foreground uppercase">
-                Pending Invites
-              </p>
-              {invitesQuery.isLoading ? (
-                <p className="mt-2 text-sm text-muted-foreground">
-                  Loading invites...
-                </p>
-              ) : (invitesQuery.data?.length || 0) === 0 ? (
-                <p className="mt-2 text-sm text-muted-foreground">
-                  No pending invites
-                </p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Invitees join as{" "}
+                    <span className="font-medium capitalize">
+                      {inviteLinkQuery.data.role}
+                    </span>
+                  </p>
+                </>
               ) : (
-                <div className="mt-2 space-y-2">
-                  {invitesQuery.data?.map((invite) => (
-                    <div
-                      key={invite.id}
-                      className="flex items-center gap-2 rounded-md border px-2 py-1.5"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm">{invite.email}</p>
-                        <p className="text-xs capitalize text-muted-foreground">
-                          {invite.role}
-                        </p>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-7 border-destructive text-destructive hover:bg-destructive/10"
-                        disabled={revokeInvite.isPending || !workspaceId}
-                        onClick={() => {
-                          if (!workspaceId) return
-                          revokeInvite.mutate({
-                            workspaceId,
-                            inviteId: invite.id,
-                          })
-                        }}
-                      >
-                        Revoke
-                      </Button>
-                    </div>
-                  ))}
+                <div className="flex items-center gap-2">
+                  <select
+                    className="h-9 rounded-md border bg-background px-3 text-sm"
+                    value={linkRole}
+                    onChange={(event) =>
+                      setLinkRole(event.target.value as "member" | "admin")
+                    }
+                  >
+                    <option value="member">Member</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9"
+                    disabled={createInviteLink.isPending || !workspaceId}
+                    onClick={() => {
+                      if (!workspaceId) return
+                      createInviteLink.mutate({ workspaceId, role: linkRole })
+                    }}
+                  >
+                    {createInviteLink.isPending
+                      ? "Creating link..."
+                      : "Create invite link"}
+                  </Button>
                 </div>
               )}
             </div>

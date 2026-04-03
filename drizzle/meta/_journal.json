@@ -15,6 +15,13 @@
       "when": 1774974346399,
       "tag": "0001_cheerful_kingpin",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1775229996587,
+      "tag": "0002_glorious_enchantress",
+      "breakpoints": true
     }
   ]
 }

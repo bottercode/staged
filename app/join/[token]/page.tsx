@@ -52,7 +52,11 @@ export default async function JoinWorkspacePage({
     session?.user?.name?.trim() ||
     (email.includes("@") ? email.split("@")[0] : "User")
 
-  let [user] = await db.select().from(users).where(eq(users.email, email)).limit(1)
+  let [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1)
   if (!user) {
     ;[user] = await db
       .insert(users)
@@ -83,7 +87,7 @@ export default async function JoinWorkspacePage({
     await db.insert(workspaceMembers).values({
       workspaceId: inviteLink.workspaceId,
       userId: user.id,
-      role: "member",
+      role: (inviteLink.role as "member" | "admin") ?? "member",
     })
   }
 

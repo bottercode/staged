@@ -3,12 +3,12 @@
 import {
   Hash,
   Plus,
-  LayoutGrid,
-  MessagesSquare,
-  Globe,
-  FileText,
-  Bot,
-  Settings,
+  SquareKanban,
+  MessageCircle,
+  Building2,
+  BookOpen,
+  Sparkles,
+  Settings2,
   Check,
   MoreHorizontal,
   Pencil,
@@ -116,7 +116,10 @@ function NavRail({
               </DropdownMenuItem>
             ))}
             {workspaces.length > 0 ? <Separator className="my-1" /> : null}
-            <DropdownMenuItem onClick={onCreateWorkspace} className="cursor-pointer">
+            <DropdownMenuItem
+              onClick={onCreateWorkspace}
+              className="cursor-pointer"
+            >
               Create New Workspace
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -135,7 +138,7 @@ function NavRail({
                   : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
               )}
             >
-              <MessagesSquare className="h-4.5 w-4.5" />
+              <MessageCircle className="h-4.5 w-4.5" />
               {totalUnread > 0 && activeTab !== "chat" && (
                 <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold text-white">
                   {totalUnread > 9 ? "9+" : totalUnread}
@@ -157,7 +160,7 @@ function NavRail({
                   : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
               )}
             >
-              <LayoutGrid className="h-4.5 w-4.5" />
+              <SquareKanban className="h-4.5 w-4.5" />
             </button>
           </TooltipTrigger>
           <TooltipContent side="right">Tasks</TooltipContent>
@@ -174,7 +177,7 @@ function NavRail({
                   : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
               )}
             >
-              <FileText className="h-4.5 w-4.5" />
+              <BookOpen className="h-4.5 w-4.5" />
             </button>
           </TooltipTrigger>
           <TooltipContent side="right">Docs</TooltipContent>
@@ -191,7 +194,7 @@ function NavRail({
                   : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
               )}
             >
-              <Globe className="h-4.5 w-4.5" />
+              <Building2 className="h-4.5 w-4.5" />
             </button>
           </TooltipTrigger>
           <TooltipContent side="right">Client Portals</TooltipContent>
@@ -208,7 +211,7 @@ function NavRail({
                   : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
               )}
             >
-              <Bot className="h-4.5 w-4.5" />
+              <Sparkles className="h-4.5 w-4.5" />
             </button>
           </TooltipTrigger>
           <TooltipContent side="right">AI Agent</TooltipContent>
@@ -222,7 +225,7 @@ function NavRail({
               onClick={onOpenSettings}
               className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
             >
-              <Settings className="h-4.5 w-4.5" />
+              <Settings2 className="h-4.5 w-4.5" />
             </button>
           </TooltipTrigger>
           <TooltipContent side="right">Agent Settings</TooltipContent>
@@ -266,7 +269,12 @@ function ChatSidebar({
             <span className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
               Channels
             </span>
-            <Button variant="ghost" size="icon" className="h-5 w-5" onClick={onCreateChannel}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5"
+              onClick={onCreateChannel}
+            >
               <Plus className="h-3.5 w-3.5" />
             </Button>
           </div>
@@ -300,7 +308,12 @@ function ChatSidebar({
             <span className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
               Direct Messages
             </span>
-            <Button variant="ghost" size="icon" className="h-5 w-5" onClick={onCreateDm}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5"
+              onClick={onCreateDm}
+            >
               <Plus className="h-3.5 w-3.5" />
             </Button>
           </div>
@@ -309,7 +322,8 @@ function ChatSidebar({
             const isActive = pathname.includes(`/dm/${room.id}`)
             const otherUser = room.members[0]
             const unread = unreadCounts[room.id] ?? 0
-            const fallback = (otherUser?.name || "U").trim()[0]?.toUpperCase() || "U"
+            const fallback =
+              (otherUser?.name || "U").trim()[0]?.toUpperCase() || "U"
             return (
               <button
                 key={room.id}
@@ -325,7 +339,9 @@ function ChatSidebar({
               >
                 <Avatar className="h-4.5 w-4.5 flex-shrink-0">
                   <AvatarImage src={otherUser?.avatarUrl ?? undefined} />
-                  <AvatarFallback className="text-[9px]">{fallback}</AvatarFallback>
+                  <AvatarFallback className="text-[9px]">
+                    {fallback}
+                  </AvatarFallback>
                 </Avatar>
                 <span className="min-w-0 flex-1 truncate text-left">
                   {otherUser?.name ?? "Unknown"}
@@ -367,7 +383,12 @@ function TasksSidebar({
             <span className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
               Boards
             </span>
-            <Button variant="ghost" size="icon" className="h-5 w-5" onClick={onCreateBoard}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5"
+              onClick={onCreateBoard}
+            >
               <Plus className="h-3.5 w-3.5" />
             </Button>
           </div>
@@ -401,13 +422,19 @@ function TasksSidebar({
                     <button
                       className={cn(
                         "flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground",
-                        isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                        isActive
+                          ? "opacity-100"
+                          : "opacity-0 group-hover:opacity-100"
                       )}
                     >
                       <MoreHorizontal className="h-3.5 w-3.5" />
                     </button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent side="right" align="start" className="w-40">
+                  <DropdownMenuContent
+                    side="right"
+                    align="start"
+                    className="w-40"
+                  >
                     <DropdownMenuItem
                       onClick={() => onRenameBoard(board)}
                       className="cursor-pointer"
@@ -429,7 +456,9 @@ function TasksSidebar({
           })}
 
           {(!boards || boards.length === 0) && (
-            <p className="px-2 py-4 text-center text-xs text-muted-foreground">No boards yet</p>
+            <p className="px-2 py-4 text-center text-xs text-muted-foreground">
+              No boards yet
+            </p>
           )}
         </div>
       </ScrollArea>
@@ -462,7 +491,12 @@ function PortalsSidebar({
             <span className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
               Portals
             </span>
-            <Button variant="ghost" size="icon" className="h-5 w-5" onClick={onCreatePortal}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5"
+              onClick={onCreatePortal}
+            >
               <Plus className="h-3.5 w-3.5" />
             </Button>
           </div>
@@ -492,7 +526,9 @@ function PortalsSidebar({
           })}
 
           {(!portals || portals.length === 0) && (
-            <p className="px-2 py-4 text-center text-xs text-muted-foreground">No portals yet</p>
+            <p className="px-2 py-4 text-center text-xs text-muted-foreground">
+              No portals yet
+            </p>
           )}
         </div>
       </ScrollArea>
@@ -523,7 +559,12 @@ function DocsSidebar({
             <span className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
               My Docs
             </span>
-            <Button variant="ghost" size="icon" className="h-5 w-5" onClick={onCreateDoc}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5"
+              onClick={onCreateDoc}
+            >
               <Plus className="h-3.5 w-3.5" />
             </Button>
           </div>
@@ -541,14 +582,20 @@ function DocsSidebar({
                     : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50"
                 )}
               >
-                <span className="flex-shrink-0 text-sm">{doc.emoji || "📄"}</span>
-                <span className="min-w-0 flex-1 truncate text-left">{doc.title || "Untitled"}</span>
+                <span className="flex-shrink-0 text-sm">
+                  {doc.emoji || "📄"}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-left">
+                  {doc.title || "Untitled"}
+                </span>
               </button>
             )
           })}
 
           {(!docs || docs.length === 0) && (
-            <p className="px-2 py-4 text-center text-xs text-muted-foreground">No docs yet</p>
+            <p className="px-2 py-4 text-center text-xs text-muted-foreground">
+              No docs yet
+            </p>
           )}
         </div>
       </ScrollArea>
@@ -596,7 +643,9 @@ export function Sidebar() {
           : "chat"
 
   const { data: workspace } = trpc.workspace.getDefault.useQuery(
-    selectedWorkspaceId ? { preferredWorkspaceId: selectedWorkspaceId } : undefined
+    selectedWorkspaceId
+      ? { preferredWorkspaceId: selectedWorkspaceId }
+      : undefined
   )
   const { data: workspaces } = trpc.workspace.list.useQuery()
   const uniqueWorkspaces = (() => {
@@ -869,9 +918,7 @@ export function Sidebar() {
               Cancel
             </Button>
             <Button
-              disabled={
-                !newWorkspaceName.trim() || createWorkspace.isPending
-              }
+              disabled={!newWorkspaceName.trim() || createWorkspace.isPending}
               onClick={() => {
                 if (!newWorkspaceName.trim()) return
                 createWorkspace.mutate({
@@ -948,8 +995,8 @@ export function Sidebar() {
             <DialogTitle>Delete board?</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            This will permanently delete <strong>{deleteBoardTarget?.name}</strong> and
-            all its tasks.
+            This will permanently delete{" "}
+            <strong>{deleteBoardTarget?.name}</strong> and all its tasks.
           </p>
           <DialogFooter>
             <Button
