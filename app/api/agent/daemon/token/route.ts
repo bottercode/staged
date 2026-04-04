@@ -8,17 +8,25 @@ export async function POST(req: Request) {
     return Response.json({ ok: false, error: "Unauthorized" }, { status: 401 })
   }
 
-  const { origin } = new URL(req.url)
+  // Resolve public origin — behind Render's reverse proxy req.url is internal
+  const reqUrl = new URL(req.url)
+  const forwardedHost = req.headers.get("x-forwarded-host")
+  const forwardedProto =
+    req.headers.get("x-forwarded-proto") ?? reqUrl.protocol.replace(":", "")
+  const publicOrigin = forwardedHost
+    ? `${forwardedProto}://${forwardedHost}`
+    : reqUrl.origin
+
   // Warm the daemon ws endpoint so the upgrade listener is registered
-  void fetch(`${origin}/api/agent/daemon/ws`, {
+  void fetch(`${publicOrigin}/api/agent/daemon/ws`, {
     method: "GET",
     cache: "no-store",
   }).catch(() => null)
 
   const token = createDaemonToken(userId)
-  const wsUrl = origin.startsWith("https://")
-    ? origin.replace("https://", "wss://")
-    : origin.replace("http://", "ws://")
+  const wsUrl = publicOrigin.startsWith("https://")
+    ? publicOrigin.replace("https://", "wss://")
+    : publicOrigin.replace("http://", "ws://")
 
   return Response.json({
     ok: true,
