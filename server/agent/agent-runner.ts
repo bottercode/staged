@@ -2,7 +2,14 @@ import { spawn, type ChildProcessWithoutNullStreams } from "child_process"
 import { randomUUID } from "crypto"
 import fs from "fs/promises"
 import path from "path"
-import { resolveFallbackModelId } from "@/server/agent/models"
+import {
+  resolveFallbackModelId,
+  type ProviderApiKeys,
+} from "@/server/agent/models"
+import {
+  isDaemonConnected,
+  dispatchDaemonJob,
+} from "@/server/agent/daemon-registry"
 
 const conversationSessionMap = new Map<string, string>()
 const SESSION_STORE_PATH = path.join(
@@ -103,6 +110,8 @@ type AgentRunInput = {
   modelId?: string
   conversationId?: string
   permissionMode?: "edit" | "plan"
+  providerApiKeys?: ProviderApiKeys
+  userId?: string
 }
 
 type AgentRunCallbacks = {
@@ -234,6 +243,152 @@ function compactPromptForRetry(prompt: string, level: "snip" | "reactive") {
   return `${prompt.slice(0, head)}\n\n[...context snipped for ${level} retry...]\n\n${prompt.slice(-tail)}`
 }
 
+async function runAgentStreamViaDaemon(
+  {
+    messages,
+    projectPath,
+    modelId,
+    conversationId,
+    permissionMode,
+    providerApiKeys,
+    userId,
+  }: AgentRunInput,
+  callbacks: AgentRunCallbacks = {}
+): Promise<AgentRunResult> {
+  const basePrompt = getLastUserMessage(messages)
+  if (!basePrompt) {
+    return {
+      sessionId: "",
+      isError: true,
+      finalText: "I could not find a user prompt in this request.",
+      stderr: "",
+      emittedTextLength: 0,
+      retryCount: 0,
+    }
+  }
+
+  const sessionId = await resolveSessionId(conversationId)
+  const toolNames = new Map<string, string>()
+  const pendingToolCalls = new Set<string>()
+  const emittedToolInputs = new Set<string>()
+  const emittedToolOutputs = new Set<string>()
+  let finalText = ""
+  let isError = false
+  let emittedTextLength = 0
+  let lastAssistantText = ""
+  let lastThinkingText = ""
+
+  const handleEvent = (event: RunnerEvent) => {
+    callbacks.onRawEvent?.(event)
+    if (event.type) {
+      callbacks.onStatus?.(
+        event.subtype ? `${event.type}.${event.subtype}` : event.type
+      )
+    }
+
+    if (event.session_id && isUuid(event.session_id) && conversationId) {
+      conversationSessionMap.set(conversationId, event.session_id)
+      void persistSessionStore()
+    }
+
+    if (Array.isArray(event.message?.content)) {
+      const content = event.message.content as Array<Record<string, unknown>>
+      processToolBlocks(
+        content,
+        callbacks,
+        emittedToolInputs,
+        emittedToolOutputs,
+        toolNames,
+        pendingToolCalls
+      )
+
+      const thinkingText = extractThinkingText(content)
+      if (thinkingText) {
+        if (thinkingText.startsWith(lastThinkingText)) {
+          const delta = thinkingText.slice(lastThinkingText.length)
+          if (delta) callbacks.onThinkingDelta?.(delta)
+        } else if (thinkingText !== lastThinkingText) {
+          callbacks.onThinkingDelta?.(`\n${thinkingText}`)
+        }
+        lastThinkingText = thinkingText
+      }
+    }
+
+    if (event.type === "assistant" && Array.isArray(event.message?.content)) {
+      const content = event.message.content as Array<Record<string, unknown>>
+      const fullText = extractAssistantText(content)
+      if (fullText) {
+        if (fullText.startsWith(lastAssistantText)) {
+          const delta = fullText.slice(lastAssistantText.length)
+          if (delta) {
+            emittedTextLength += delta.length
+            callbacks.onTextDelta?.(delta)
+          }
+        } else if (fullText !== lastAssistantText) {
+          const delta = `\n${fullText}`
+          emittedTextLength += delta.length
+          callbacks.onTextDelta?.(delta)
+        }
+        lastAssistantText = fullText
+        finalText = fullText
+      }
+    }
+
+    if (event.type === "result") {
+      isError = Boolean(event.is_error)
+      if (typeof event.result === "string" && event.result.trim()) {
+        finalText = event.result
+      }
+    }
+  }
+
+  try {
+    const eventStream = dispatchDaemonJob(userId!, {
+      prompt: basePrompt,
+      modelId: modelId ?? "",
+      sessionId,
+      permissionMode: permissionMode ?? "edit",
+      cwd: projectPath,
+      providerApiKeys: {
+        anthropicApiKey: providerApiKeys?.anthropicApiKey,
+        openaiApiKey: providerApiKeys?.openaiApiKey,
+        googleApiKey: providerApiKeys?.googleApiKey,
+        mistralApiKey: providerApiKeys?.mistralApiKey,
+        xaiApiKey: providerApiKeys?.xaiApiKey,
+      },
+    })
+
+    for await (const event of eventStream) {
+      handleEvent(event as RunnerEvent)
+    }
+  } catch (err) {
+    isError = true
+    finalText = err instanceof Error ? err.message : String(err)
+  }
+
+  for (const toolCallId of pendingToolCalls) {
+    if (!emittedToolOutputs.has(toolCallId)) {
+      emittedToolOutputs.add(toolCallId)
+      callbacks.onToolOutput?.(toolCallId, {
+        error: "Tool execution ended before returning a result.",
+      })
+    }
+  }
+
+  const resolvedSession = conversationId
+    ? conversationSessionMap.get(conversationId) || sessionId
+    : sessionId
+
+  return {
+    sessionId: resolvedSession,
+    isError,
+    finalText: finalText || "Agent runner did not return output.",
+    stderr: "",
+    emittedTextLength,
+    retryCount: 0,
+  }
+}
+
 async function runAgentStreamOnce(
   {
     messages,
@@ -241,6 +396,8 @@ async function runAgentStreamOnce(
     modelId,
     conversationId,
     permissionMode,
+    providerApiKeys,
+    userId,
   }: AgentRunInput,
   callbacks: AgentRunCallbacks = {}
 ): Promise<AgentRunResult> {
@@ -276,10 +433,28 @@ async function runAgentStreamOnce(
   if (modelId) args.push("--model", modelId)
   args.push(prompt)
 
-  const child = spawn("claude", args, {
+  const child = spawn("staged", args, {
     cwd: projectPath,
     shell: false,
-    env: { ...process.env, TERM: "xterm-256color" },
+    env: {
+      ...process.env,
+      TERM: "xterm-256color",
+      ...(providerApiKeys?.anthropicApiKey && {
+        STAGED_ANTHROPIC_API_KEY: providerApiKeys.anthropicApiKey,
+      }),
+      ...(providerApiKeys?.openaiApiKey && {
+        STAGED_OPENAI_API_KEY: providerApiKeys.openaiApiKey,
+      }),
+      ...(providerApiKeys?.googleApiKey && {
+        STAGED_GOOGLE_API_KEY: providerApiKeys.googleApiKey,
+      }),
+      ...(providerApiKeys?.mistralApiKey && {
+        STAGED_MISTRAL_API_KEY: providerApiKeys.mistralApiKey,
+      }),
+      ...(providerApiKeys?.xaiApiKey && {
+        STAGED_XAI_API_KEY: providerApiKeys.xaiApiKey,
+      }),
+    },
   })
 
   let stdoutBuffer = ""
@@ -463,7 +638,10 @@ export async function runAgentStream(
       ],
     }
 
-    const result = await runAgentStreamOnce(patchedInput, callbacks)
+    const useDaemon = Boolean(input.userId && isDaemonConnected(input.userId))
+    const result = useDaemon
+      ? await runAgentStreamViaDaemon(patchedInput, callbacks)
+      : await runAgentStreamOnce(patchedInput, callbacks)
     lastResult = result
 
     const transientRetry =

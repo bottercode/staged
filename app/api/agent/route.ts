@@ -287,7 +287,7 @@ export async function POST(req: Request) {
   const shouldUseCliRunner =
     Boolean(projectPath) &&
     (selectedBackend === "auto" || selectedBackend === "claude-code") &&
-    isCliRunnerModel(normalizedModelId)
+    Boolean(resolvedProvider)
 
   if (shouldUseCliRunner && projectPath) {
     const stream = createUIMessageStream({
@@ -310,12 +310,14 @@ export async function POST(req: Request) {
             {
               messages: preparedMessages,
               projectPath,
-              modelId: getModelWithoutProviderPrefix(normalizedModelId),
+              modelId: normalizedModelId,
               conversationId: normalizedConversationId,
               permissionMode:
                 permissionMode === "edit" || permissionMode === "plan"
                   ? permissionMode
                   : "edit",
+              providerApiKeys: keys,
+              userId,
             },
             {
               onTextDelta: (delta) => {
