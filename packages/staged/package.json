@@ -1,9 +1,9 @@
 {
-  "name": "staged",
+  "name": "stl-staged",
   "version": "0.1.0",
   "description": "Staged AI coding daemon — run AI coding agents on your local machine",
   "bin": {
-    "staged": "./dist/index.js"
+    "staged": "dist/index.js"
   },
   "main": "./dist/index.js",
   "scripts": {

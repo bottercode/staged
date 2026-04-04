@@ -629,7 +629,7 @@ export function AgentSettingsDialog({
               <div className="flex items-center gap-2">
                 <Input
                   readOnly
-                  value="npm install -g staged"
+                  value="npm install -g stl-staged"
                   className="h-9 font-mono text-xs"
                 />
                 <Button
@@ -637,7 +637,9 @@ export function AgentSettingsDialog({
                   variant="outline"
                   className="h-9 shrink-0"
                   onClick={async () => {
-                    await navigator.clipboard.writeText("npm install -g staged")
+                    await navigator.clipboard.writeText(
+                      "npm install -g stl-staged"
+                    )
                   }}
                 >
                   Copy
