@@ -13,12 +13,22 @@ type Message = {
 let idCounter = 0
 const uid = () => `msg-${Date.now()}-${++idCounter}`
 
-export function ChatPanel({ cwd }: { cwd: string }) {
+export function ChatPanel({
+  cwd,
+  sessionId,
+  history,
+  onHistoryUpdate,
+}: {
+  cwd: string
+  sessionId: string
+  history: unknown[]
+  onHistoryUpdate: (h: unknown[]) => void
+}) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [isRunning, setIsRunning] = useState(false)
   const [permissionMode, setPermissionMode] = useState<"edit" | "plan">("edit")
-  const historyRef = useRef<unknown[]>([])
+  const historyRef = useRef<unknown[]>(history)
   const activeJobRef = useRef<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -104,9 +114,10 @@ export function ChatPanel({ cwd }: { cwd: string }) {
       if (event.type === "done" || event.type === "error") {
         setIsRunning(false)
         activeJobRef.current = null
+        onHistoryUpdate(historyRef.current)
       }
     },
-    []
+    [onHistoryUpdate]
   )
 
   useEffect(() => {
