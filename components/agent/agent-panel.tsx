@@ -658,369 +658,37 @@ function TaskSelector({
 
 // ── Connect screen ───────────────────────────────────────
 
-function ConnectScreen({
-  onConnect,
-  recentFolders,
-  onRemoveRecentFolder,
-}: {
-  onConnect: (path: string, info: ProjectInfo) => void
-  recentFolders: string[]
-  onRemoveRecentFolder: (path: string) => void
-}) {
-  const [daemonConnected, setDaemonConnected] = useState(false)
-  const [daemonChecked, setDaemonChecked] = useState(false)
-  const [daemonCommand, setDaemonCommand] = useState<string | null>(null)
-  const [generating, setGenerating] = useState(false)
-  const [copied, setCopied] = useState<"install" | "connect" | null>(null)
-  const [pathInput, setPathInput] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const pollDaemon = useCallback(async () => {
-    try {
-      const res = await fetch("/api/agent/daemon/token")
-      if (!res.ok) return
-      const data = (await res.json()) as { connected?: boolean }
-      setDaemonConnected(Boolean(data.connected))
-      setDaemonChecked(true)
-    } catch {
-      setDaemonChecked(true)
-    }
-  }, [])
-
-  useEffect(() => {
-    void pollDaemon()
-    const id = setInterval(() => {
-      void pollDaemon()
-    }, 3_000)
-    return () => clearInterval(id)
-  }, [pollDaemon])
-
-  const generateToken = async () => {
-    setGenerating(true)
-    try {
-      const res = await fetch("/api/agent/daemon/token", { method: "POST" })
-      const data = (await res.json()) as {
-        command?: string
-        connected?: boolean
-      }
-      if (data.command) setDaemonCommand(data.command)
-      if (data.connected !== undefined)
-        setDaemonConnected(Boolean(data.connected))
-    } catch {
-      // ignore
-    }
-    setGenerating(false)
-  }
-
-  const copyText = async (text: string, key: "install" | "connect") => {
-    await navigator.clipboard.writeText(text)
-    setCopied(key)
-    setTimeout(() => setCopied(null), 1500)
-  }
-
-  const connect = (dirPath: string) => {
-    const trimmed = dirPath.trim()
-    if (!trimmed) return
-    setError(null)
-    setLoading(true)
-    onConnect(trimmed, {
-      valid: true,
-      name: trimmed.split("/").pop() || trimmed,
-      path: trimmed,
-      fileCount: 0,
-      projectType: "",
-      isGit: false,
-      files: [],
-    })
-    setLoading(false)
-  }
-
-  const INSTALL_CMD = "npm install -g stl-staged"
-
-  if (!daemonChecked) {
-    return (
-      <div className="flex h-full w-full items-center justify-center bg-background">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
-
-  // ── No daemon: show setup steps ──
-  if (!daemonConnected) {
-    return (
-      <div className="flex h-full w-full flex-col items-center justify-center bg-background px-8">
-        <div className="w-full max-w-sm space-y-6">
-          <div className="space-y-2 text-center">
-            <div className="mb-4 flex justify-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border bg-muted">
-                <Sparkles className="h-6 w-6 text-foreground/70" />
-              </div>
-            </div>
-            <h1 className="text-xl font-semibold tracking-tight">
-              Connect your machine
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              The agent runs locally on your machine. Set it up once in two
-              steps.
-            </p>
-          </div>
-
-          {/* Step 1 */}
-          <div className="space-y-2">
-            <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-              Step 1 — Install
-            </p>
-            <div className="flex items-center gap-2">
-              <input
-                readOnly
-                value={INSTALL_CMD}
-                className="flex-1 rounded-md border bg-muted/50 px-3 py-2 font-mono text-xs text-foreground"
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                className="shrink-0"
-                onClick={() => void copyText(INSTALL_CMD, "install")}
-              >
-                {copied === "install" ? "Copied" : "Copy"}
-              </Button>
-            </div>
-          </div>
-
-          {/* Step 2 */}
-          <div className="space-y-2">
-            <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-              Step 2 — Connect
-            </p>
-            {daemonCommand ? (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <input
-                    readOnly
-                    value={daemonCommand}
-                    className="flex-1 rounded-md border bg-muted/50 px-3 py-2 font-mono text-xs text-foreground"
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="shrink-0"
-                    onClick={() => void copyText(daemonCommand, "connect")}
-                  >
-                    {copied === "connect" ? "Copied" : "Copy"}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Run this in your terminal and keep it open.
-                </p>
-              </div>
-            ) : (
-              <Button
-                variant="outline"
-                className="w-full"
-                disabled={generating}
-                onClick={() => void generateToken()}
-              >
-                {generating && (
-                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                )}
-                {generating ? "Generating..." : "Generate connect command"}
-              </Button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-2">
-            <span className="h-2 w-2 rounded-full bg-muted-foreground/30" />
-            <p className="text-xs text-muted-foreground">
-              Waiting for daemon to connect...
-            </p>
-            <Loader2 className="ml-auto h-3 w-3 animate-spin text-muted-foreground/50" />
+function ConnectScreen() {
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center bg-background px-8">
+      <div className="w-full max-w-xs space-y-5 text-center">
+        <div className="flex justify-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl border bg-muted">
+            <Sparkles className="h-6 w-6 text-foreground/70" />
           </div>
         </div>
-      </div>
-    )
-  }
 
-  // ── Daemon connected: folder browser via local daemon ──
-  return (
-    <LocalFolderBrowser
-      onSelect={connect}
-      recentFolders={recentFolders}
-      onRemoveRecentFolder={onRemoveRecentFolder}
-    />
-  )
-}
-
-// ── Local folder browser (calls daemon's browse server at localhost:39281) ──
-
-const BROWSE_PORT = 39281
-
-type BrowseData = {
-  path: string
-  name: string
-  parent: string
-  folders: string[]
-}
-
-function LocalFolderBrowser({
-  onSelect,
-  recentFolders,
-  onRemoveRecentFolder,
-}: {
-  onSelect: (path: string, info: ProjectInfo) => void
-  recentFolders: string[]
-  onRemoveRecentFolder: (path: string) => void
-}) {
-  const [browseData, setBrowseData] = useState<BrowseData | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [pathInput, setPathInput] = useState("")
-
-  const browse = useCallback(async (dirPath?: string) => {
-    setLoading(true)
-    setError(null)
-    try {
-      const url = new URL(`http://localhost:${BROWSE_PORT}/browse`)
-      if (dirPath) url.searchParams.set("path", dirPath)
-      const res = await fetch(url.toString())
-      const data = (await res.json()) as BrowseData & { error?: string }
-      if (data.error) {
-        setError(data.error)
-        setLoading(false)
-        return
-      }
-      setBrowseData(data)
-      setPathInput(data.path)
-    } catch {
-      setError(
-        "Cannot reach daemon browse server. Make sure stl-staged is running."
-      )
-    }
-    setLoading(false)
-  }, [])
-
-  useEffect(() => {
-    void browse()
-  }, [browse])
-
-  const open = (p: string) => {
-    onSelect(p, {
-      valid: true,
-      name: p.split("/").pop() || p,
-      path: p,
-      fileCount: 0,
-      projectType: "",
-      isGit: false,
-      files: [],
-    })
-  }
-
-  return (
-    <div className="flex h-full w-full flex-col bg-background">
-      {/* Header */}
-      <div className="flex items-center gap-2 border-b px-4 py-3">
-        <span className="h-2 w-2 rounded-full bg-green-500" />
-        <span className="text-sm font-medium">Open a project folder</span>
-      </div>
-
-      {/* Path bar */}
-      <div className="flex items-center gap-2 border-b px-4 py-2">
-        <button
-          onClick={() => browseData && void browse(browseData.parent)}
-          disabled={loading || !browseData}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted disabled:opacity-40"
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </button>
-        <form
-          className="flex-1"
-          onSubmit={(e) => {
-            e.preventDefault()
-            if (pathInput.trim()) void browse(pathInput.trim())
-          }}
-        >
-          <input
-            value={pathInput}
-            onChange={(e) => setPathInput(e.target.value)}
-            className="w-full rounded border bg-muted/50 px-3 py-1.5 font-mono text-xs text-foreground focus:border-primary/50 focus:outline-none"
-          />
-        </form>
-      </div>
-
-      {/* Folder list */}
-      <div className="flex-1 overflow-y-auto p-2">
-        {loading && !browseData ? (
-          <div className="flex h-full items-center justify-center">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
-        ) : error ? (
-          <p className="px-3 py-8 text-center text-xs text-destructive">
-            {error}
+        <div className="space-y-2">
+          <h1 className="text-xl font-semibold tracking-tight">
+            Use the desktop app
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            The AI agent runs directly on your machine. Download the Staged
+            desktop app to get started.
           </p>
-        ) : browseData ? (
-          <div className="space-y-0.5">
-            {browseData.folders.length === 0 && (
-              <p className="px-3 py-8 text-center text-xs text-muted-foreground">
-                No subfolders
-              </p>
-            )}
-            {browseData.folders.map((folder) => (
-              <button
-                key={folder}
-                onClick={() => void browse(`${browseData.path}/${folder}`)}
-                className={cn(
-                  "flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-muted",
-                  pathInput === `${browseData.path}/${folder}` &&
-                    "bg-primary/10 text-primary"
-                )}
-              >
-                <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="truncate">{folder}</span>
-                <ChevronRight className="ml-auto h-3 w-3 text-muted-foreground/50" />
-              </button>
-            ))}
-          </div>
-        ) : null}
-      </div>
-
-      {/* Recent + open */}
-      <div className="space-y-2 border-t p-3">
-        {recentFolders.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {recentFolders.map((folder) => {
-              const name = folder.split("/").pop() || folder
-              return (
-                <div key={folder} className="group flex items-center gap-1">
-                  <button
-                    onClick={() => open(folder)}
-                    className="flex items-center gap-1 rounded border bg-muted/30 px-2 py-1 font-mono text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-                  >
-                    <FolderOpen className="h-3 w-3" />
-                    {name}
-                  </button>
-                  <button
-                    onClick={() => onRemoveRecentFolder(folder)}
-                    className="opacity-0 group-hover:opacity-100 hover:text-destructive"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              )
-            })}
-          </div>
-        )}
-        <div className="flex items-center justify-between">
-          <span className="truncate font-mono text-xs text-muted-foreground">
-            {browseData?.name || "—"}
-          </span>
-          <Button
-            size="sm"
-            disabled={!browseData}
-            onClick={() => browseData && open(browseData.path)}
-          >
-            Open
-          </Button>
         </div>
+
+        <a
+          href="https://staged.bottercode.com/download"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-lg border bg-foreground px-4 py-2.5 text-sm font-medium text-background transition-opacity hover:opacity-90"
+        >
+          Download Staged
+          <ArrowRight className="h-4 w-4" />
+        </a>
+
+        <p className="text-xs text-muted-foreground">macOS · Windows · Linux</p>
       </div>
     </div>
   )
@@ -1827,20 +1495,7 @@ export function AgentPanel() {
 
   // ── Connect screen ──
   if (!projectPath) {
-    return (
-      <ConnectScreen
-        onConnect={(path, info) => {
-          switchProjectContext(path, info)
-          setRecentFolders((prev) =>
-            [path, ...prev.filter((p) => p !== path)].slice(0, 5)
-          )
-        }}
-        recentFolders={recentFolders}
-        onRemoveRecentFolder={(path) =>
-          setRecentFolders((prev) => prev.filter((entry) => entry !== path))
-        }
-      />
-    )
+    return <ConnectScreen />
   }
 
   // ── Main chat view ──
