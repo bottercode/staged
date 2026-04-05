@@ -23,7 +23,7 @@ export default function App() {
       {/* Title bar */}
       <div
         className="titlebar-drag flex h-10 shrink-0 items-center justify-between px-4 border-b border-white/[0.06]"
-        style={{ paddingLeft: process.platform === "darwin" ? 80 : 16 }}
+        style={{ paddingLeft: window.api.platform === "darwin" ? 80 : 16 }}
       >
         <span className="text-[13px] font-semibold text-white/70 titlebar-no-drag select-none">
           {cwd ? cwd.split("/").pop() : "Staged"}

@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron"
 import type { AgentEvent } from "../main/agent"
 
 export type IpcApi = {
+  platform: NodeJS.Platform
   openFolder: () => Promise<string | null>
   getSettings: () => Promise<{ modelId: string; providerApiKeys: Record<string, string> }>
   setSettings: (s: { modelId: string; providerApiKeys: Record<string, string> }) => Promise<void>
@@ -20,6 +21,7 @@ export type IpcApi = {
 }
 
 const api: IpcApi = {
+  platform: process.platform,
   openFolder: () => ipcRenderer.invoke("dialog:open-folder"),
 
   getSettings: () => ipcRenderer.invoke("settings:get"),
