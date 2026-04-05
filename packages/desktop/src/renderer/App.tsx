@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react"
+import type { Section } from "./types"
 import { NavRail } from "./components/NavRail"
 import { AgentSidebar } from "./components/sidebars/AgentSidebar"
 import { SettingsModal } from "./components/SettingsModal"
@@ -7,8 +8,6 @@ import { ChatSection } from "./sections/ChatSection"
 import { TasksSection } from "./sections/TasksSection"
 import { DocsSection } from "./sections/DocsSection"
 import { PortalsSection } from "./sections/PortalsSection"
-
-export type Section = "agent" | "chat" | "tasks" | "docs" | "portals"
 
 const WEB_SECTIONS: Section[] = ["chat", "tasks", "docs", "portals"]
 
@@ -27,32 +26,23 @@ export default function App() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#0d0d0d] text-white">
-      {/* Left nav rail — always visible */}
       <NavRail
         active={section}
         onSelect={setSection}
         onSettings={() => setSettingsOpen(true)}
       />
 
-      {/* Agent layout: native sidebar + chat */}
+      {/* Agent: native sidebar + local chat */}
       {section === "agent" && (
         <>
-          <aside
-            className="flex w-56 shrink-0 flex-col border-r border-white/[0.05] bg-[#0a0a0a]"
-          >
-            <div
-              className="h-10 shrink-0"
-              style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
-            />
+          <aside className="flex w-56 shrink-0 flex-col border-r border-white/[0.05] bg-[#0a0a0a]">
+            <div className="titlebar-drag h-10 shrink-0" />
             <div className="flex-1 overflow-y-auto">
               <AgentSidebar />
             </div>
           </aside>
           <main className="flex flex-1 flex-col overflow-hidden">
-            <div
-              className="h-10 shrink-0 border-b border-white/[0.05]"
-              style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
-            />
+            <div className="titlebar-drag h-10 shrink-0 border-b border-white/[0.05]" />
             <div className="flex-1 overflow-hidden">
               <AgentSection />
             </div>
@@ -60,14 +50,10 @@ export default function App() {
         </>
       )}
 
-      {/* Web sections: webview fills remaining space (web app has its own sidebar) */}
+      {/* Web sections: webview fills full width */}
       {isWebSection && (
         <div className="flex flex-1 flex-col overflow-hidden">
-          {/* macOS titlebar drag area */}
-          <div
-            className="h-10 shrink-0 border-b border-white/[0.05]"
-            style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
-          />
+          <div className="titlebar-drag h-10 shrink-0 border-b border-white/[0.05]" />
           <div className="flex-1 overflow-hidden">
             {section === "chat" && <ChatSection />}
             {section === "tasks" && <TasksSection />}
