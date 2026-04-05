@@ -1,5 +1,5 @@
 import { useState, useCallback, createContext, useContext } from "react"
-import React from "react"
+import type { ReactNode } from "react"
 
 export type AgentSession = {
   id: string
@@ -20,21 +20,18 @@ type AgentStore = {
 const AgentContext = createContext<AgentStore | null>(null)
 
 let counter = 1
-
 function makeSession(): AgentSession {
   return { id: `s-${Date.now()}-${counter++}`, name: `Chat ${counter - 1}`, history: [] }
 }
 
-// Create the very first session outside the component so the ID is stable
 const FIRST_SESSION = makeSession()
 
-export function AgentStoreProvider({ children }: { children: React.ReactNode }) {
+export function AgentStoreProvider({ children }: { children: ReactNode }) {
   const [cwd, setCwdState] = useState<string | null>(null)
   const [sessions, setSessions] = useState<AgentSession[]>([FIRST_SESSION])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(FIRST_SESSION.id)
 
   const setCwd = useCallback((path: string | null) => setCwdState(path), [])
-
   const setActiveSession = useCallback((id: string) => setActiveSessionId(id), [])
 
   const createSession = useCallback(() => {
@@ -44,21 +41,15 @@ export function AgentStoreProvider({ children }: { children: React.ReactNode }) 
   }, [])
 
   const updateSessionHistory = useCallback((id: string, history: unknown[]) => {
-    setSessions((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, history } : s))
-    )
+    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, history } : s)))
   }, [])
 
-  return React.createElement(
-    AgentContext.Provider,
-    {
-      value: {
-        cwd, setCwd,
-        sessions, activeSessionId, setActiveSession,
-        createSession, updateSessionHistory,
-      },
-    },
-    children
+  return (
+    <AgentContext.Provider
+      value={{ cwd, setCwd, sessions, activeSessionId, setActiveSession, createSession, updateSessionHistory }}
+    >
+      {children}
+    </AgentContext.Provider>
   )
 }
 
