@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { NavRail } from "./components/NavRail"
-import { Sidebar } from "./components/Sidebar"
+import { AgentSidebar } from "./components/sidebars/AgentSidebar"
 import { SettingsModal } from "./components/SettingsModal"
 import { AgentSection } from "./sections/AgentSection"
 import { ChatSection } from "./sections/ChatSection"
@@ -10,6 +10,8 @@ import { PortalsSection } from "./sections/PortalsSection"
 
 export type Section = "agent" | "chat" | "tasks" | "docs" | "portals"
 
+const WEB_SECTIONS: Section[] = ["chat", "tasks", "docs", "portals"]
+
 export default function App() {
   const [section, setSection] = useState<Section>("agent")
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -17,39 +19,63 @@ export default function App() {
   useEffect(() => {
     window.api.getSettings().then((s) => {
       const keys = s.providerApiKeys as Record<string, string>
-      const anyKey = Object.values(keys).some((v) => v?.trim())
-      if (!anyKey) setSettingsOpen(true)
+      if (!Object.values(keys).some((v) => v?.trim())) setSettingsOpen(true)
     })
   }, [])
 
+  const isWebSection = WEB_SECTIONS.includes(section)
+
   return (
     <div className="flex h-screen overflow-hidden bg-[#0d0d0d] text-white">
-      {/* Nav rail */}
+      {/* Left nav rail — always visible */}
       <NavRail
         active={section}
         onSelect={setSection}
         onSettings={() => setSettingsOpen(true)}
       />
 
-      {/* Sidebar */}
-      <Sidebar section={section} />
+      {/* Agent layout: native sidebar + chat */}
+      {section === "agent" && (
+        <>
+          <aside
+            className="flex w-56 shrink-0 flex-col border-r border-white/[0.05] bg-[#0a0a0a]"
+          >
+            <div
+              className="h-10 shrink-0"
+              style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+            />
+            <div className="flex-1 overflow-y-auto">
+              <AgentSidebar />
+            </div>
+          </aside>
+          <main className="flex flex-1 flex-col overflow-hidden">
+            <div
+              className="h-10 shrink-0 border-b border-white/[0.05]"
+              style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+            />
+            <div className="flex-1 overflow-hidden">
+              <AgentSection />
+            </div>
+          </main>
+        </>
+      )}
 
-      {/* Main content */}
-      <main className="flex flex-1 flex-col overflow-hidden">
-        {/* Titlebar drag area */}
-        <div
-          className="titlebar-drag h-10 shrink-0 border-b border-white/[0.05]"
-          style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
-        />
-
-        <div className="flex-1 overflow-hidden">
-          {section === "agent" && <AgentSection />}
-          {section === "chat" && <ChatSection />}
-          {section === "tasks" && <TasksSection />}
-          {section === "docs" && <DocsSection />}
-          {section === "portals" && <PortalsSection />}
+      {/* Web sections: webview fills remaining space (web app has its own sidebar) */}
+      {isWebSection && (
+        <div className="flex flex-1 flex-col overflow-hidden">
+          {/* macOS titlebar drag area */}
+          <div
+            className="h-10 shrink-0 border-b border-white/[0.05]"
+            style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+          />
+          <div className="flex-1 overflow-hidden">
+            {section === "chat" && <ChatSection />}
+            {section === "tasks" && <TasksSection />}
+            {section === "docs" && <DocsSection />}
+            {section === "portals" && <PortalsSection />}
+          </div>
         </div>
-      </main>
+      )}
 
       {settingsOpen && (
         <SettingsModal onClose={() => setSettingsOpen(false)} />

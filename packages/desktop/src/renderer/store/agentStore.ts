@@ -22,23 +22,20 @@ const AgentContext = createContext<AgentStore | null>(null)
 let counter = 1
 
 function makeSession(): AgentSession {
-  return { id: `s-${Date.now()}`, name: `Chat ${counter++}`, history: [] }
+  return { id: `s-${Date.now()}-${counter++}`, name: `Chat ${counter - 1}`, history: [] }
 }
+
+// Create the very first session outside the component so the ID is stable
+const FIRST_SESSION = makeSession()
 
 export function AgentStoreProvider({ children }: { children: React.ReactNode }) {
   const [cwd, setCwdState] = useState<string | null>(null)
-  const [sessions, setSessions] = useState<AgentSession[]>(() => [makeSession()])
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(
-    () => sessions[0]?.id ?? null
-  )
+  const [sessions, setSessions] = useState<AgentSession[]>([FIRST_SESSION])
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(FIRST_SESSION.id)
 
-  const setCwd = useCallback((path: string | null) => {
-    setCwdState(path)
-  }, [])
+  const setCwd = useCallback((path: string | null) => setCwdState(path), [])
 
-  const setActiveSession = useCallback((id: string) => {
-    setActiveSessionId(id)
-  }, [])
+  const setActiveSession = useCallback((id: string) => setActiveSessionId(id), [])
 
   const createSession = useCallback(() => {
     const s = makeSession()
@@ -56,13 +53,9 @@ export function AgentStoreProvider({ children }: { children: React.ReactNode }) 
     AgentContext.Provider,
     {
       value: {
-        cwd,
-        setCwd,
-        sessions,
-        activeSessionId,
-        setActiveSession,
-        createSession,
-        updateSessionHistory,
+        cwd, setCwd,
+        sessions, activeSessionId, setActiveSession,
+        createSession, updateSessionHistory,
       },
     },
     children
