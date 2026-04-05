@@ -336,9 +336,17 @@ export async function runConnectMode(argv: string[]): Promise<void> {
     const ws = new WebSocket(connectUrl)
     const activeJobs = new Set<string>()
 
+    // Client-side keepalive — keeps Render's proxy from closing idle connections
+    let keepaliveTimer: ReturnType<typeof setInterval> | null = null
+
     ws.on("open", () => {
       delay = RECONNECT_DELAY_MS
       process.stdout.write("Connected. Waiting for jobs...\n")
+      keepaliveTimer = setInterval(() => {
+        if (ws.readyState === ws.OPEN) {
+          try { ws.ping() } catch { /* ignore */ }
+        }
+      }, 20_000)
     })
 
     ws.on("message", (raw) => {
@@ -373,6 +381,7 @@ export async function runConnectMode(argv: string[]): Promise<void> {
     })
 
     ws.on("close", (code) => {
+      if (keepaliveTimer) { clearInterval(keepaliveTimer); keepaliveTimer = null }
       process.stdout.write(`Disconnected (code ${code}). Reconnecting in ${delay / 1000}s...\n`)
       setTimeout(() => {
         delay = Math.min(delay * 2, MAX_RECONNECT_DELAY_MS)
