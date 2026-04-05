@@ -18,18 +18,37 @@ type DaemonConnection = {
 export type DaemonEvent = Record<string, unknown>
 
 // ---------------------------------------------------------------------------
-// Token store: token → userId (in-memory, best-effort)
+// Shared global state — use globalThis so both App Router and Pages Router
+// bundles share the same Maps (Next.js can instantiate modules twice).
 // ---------------------------------------------------------------------------
 
-const tokens = new Map<string, { userId: string; createdAt: number }>()
+declare global {
+  var __stagedDaemonTokens:
+    | Map<string, { userId: string; createdAt: number }>
+    | undefined
+  var __stagedDaemonConnections: Map<string, DaemonConnection> | undefined
+}
+
 const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
 
+function getTokens() {
+  if (!globalThis.__stagedDaemonTokens) {
+    globalThis.__stagedDaemonTokens = new Map()
+  }
+  return globalThis.__stagedDaemonTokens
+}
+
+function getConnections() {
+  if (!globalThis.__stagedDaemonConnections) {
+    globalThis.__stagedDaemonConnections = new Map()
+  }
+  return globalThis.__stagedDaemonConnections
+}
+
 export function createDaemonToken(userId: string): string {
-  // One active token per user — revoke old ones
+  const tokens = getTokens()
   for (const [token, entry] of tokens) {
-    if (entry.userId === userId) {
-      tokens.delete(token)
-    }
+    if (entry.userId === userId) tokens.delete(token)
   }
   const token = randomUUID()
   tokens.set(token, { userId, createdAt: Date.now() })
@@ -37,6 +56,7 @@ export function createDaemonToken(userId: string): string {
 }
 
 export function resolveDaemonToken(token: string): string | null {
+  const tokens = getTokens()
   const entry = tokens.get(token)
   if (!entry) return null
   if (Date.now() - entry.createdAt > TOKEN_TTL_MS) {
@@ -50,13 +70,15 @@ export function resolveDaemonToken(token: string): string | null {
 // Daemon connection registry: userId → DaemonConnection
 // ---------------------------------------------------------------------------
 
-const connections = new Map<string, DaemonConnection>()
-
 export function registerDaemon(userId: string, ws: WebSocket): void {
-  // Close any previous connection for this user
+  const connections = getConnections()
   const prev = connections.get(userId)
   if (prev && prev.ws !== ws) {
-    try { prev.ws.close() } catch { /* ignore */ }
+    try {
+      prev.ws.close()
+    } catch {
+      /* ignore */
+    }
   }
   connections.set(userId, {
     userId,
@@ -67,14 +89,13 @@ export function registerDaemon(userId: string, ws: WebSocket): void {
 }
 
 export function unregisterDaemon(userId: string, ws: WebSocket): void {
+  const connections = getConnections()
   const conn = connections.get(userId)
-  if (conn && conn.ws === ws) {
-    connections.delete(userId)
-  }
+  if (conn && conn.ws === ws) connections.delete(userId)
 }
 
 export function isDaemonConnected(userId: string): boolean {
-  const conn = connections.get(userId)
+  const conn = getConnections().get(userId)
   if (!conn) return false
   const { readyState } = conn.ws as WebSocket & { readyState: number }
   return readyState === 1 // OPEN
@@ -108,7 +129,7 @@ export async function* dispatchDaemonJob(
   userId: string,
   job: DaemonJob
 ): AsyncGenerator<DaemonEvent> {
-  const conn = connections.get(userId)
+  const conn = getConnections().get(userId)
   if (!conn) throw new Error("No daemon connected for this user")
 
   const jobId = randomUUID()
@@ -141,7 +162,8 @@ export async function* dispatchDaemonJob(
         yield event
         if (
           event.type === "result" ||
-          (event.type === "done" && (event as { jobId?: string }).jobId === jobId)
+          (event.type === "done" &&
+            (event as { jobId?: string }).jobId === jobId)
         ) {
           done = true
           break
@@ -153,7 +175,10 @@ export async function* dispatchDaemonJob(
       await new Promise<void>((r) => {
         resolve = r
         // If something arrived while we were setting up, resolve immediately
-        if (queue.length > 0) { r(); resolve = null }
+        if (queue.length > 0) {
+          r()
+          resolve = null
+        }
       })
     }
   } finally {
@@ -169,7 +194,7 @@ export function receiveDaemonEvent(
   jobId: string,
   event: DaemonEvent
 ): void {
-  const conn = connections.get(userId)
+  const conn = getConnections().get(userId)
   if (!conn) return
   const listener = conn.jobListeners.get(jobId)
   listener?.(event)

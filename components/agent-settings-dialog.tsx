@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { skipToken } from "@tanstack/react-query"
 import { useRouter } from "next/navigation"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -21,7 +21,7 @@ import {
   writeAgentSettings,
 } from "@/lib/agent-settings"
 
-type SettingsTab = "members" | "apps" | "workspace" | "daemon"
+type SettingsTab = "members" | "apps" | "workspace"
 
 type FieldKey =
   | "anthropicApiKey"
@@ -42,7 +42,6 @@ const TAB_LABELS: Array<{ key: SettingsTab; label: string }> = [
   { key: "members", label: "Members" },
   { key: "apps", label: "Apps" },
   { key: "workspace", label: "Workspace Settings" },
-  { key: "daemon", label: "Local Daemon" },
 ]
 
 function titleFromEmail(email: string) {
@@ -91,53 +90,6 @@ export function AgentSettingsDialog({
 
   const [linkRole, setLinkRole] = useState<"member" | "admin">("member")
   const [copiedInviteLink, setCopiedInviteLink] = useState(false)
-
-  // ── Daemon state ─────────────────────────────────────────
-  const [daemonConnected, setDaemonConnected] = useState(false)
-  const [daemonCommand, setDaemonCommand] = useState<string | null>(null)
-  const [daemonGenerating, setDaemonGenerating] = useState(false)
-  const [copiedDaemonCmd, setCopiedDaemonCmd] = useState(false)
-  const daemonPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  const pollDaemonStatus = useCallback(async () => {
-    try {
-      const res = await fetch("/api/agent/daemon/token")
-      if (!res.ok) return
-      const data = (await res.json()) as { connected?: boolean }
-      setDaemonConnected(Boolean(data.connected))
-    } catch {
-      // ignore
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!open || tab !== "daemon") return
-    void pollDaemonStatus()
-    daemonPollRef.current = setInterval(() => {
-      void pollDaemonStatus()
-    }, 4_000)
-    return () => {
-      if (daemonPollRef.current) clearInterval(daemonPollRef.current)
-    }
-  }, [open, tab, pollDaemonStatus])
-
-  const generateDaemonToken = async () => {
-    setDaemonGenerating(true)
-    try {
-      const res = await fetch("/api/agent/daemon/token", { method: "POST" })
-      const data = (await res.json()) as {
-        command?: string
-        connected?: boolean
-      }
-      if (data.command) setDaemonCommand(data.command)
-      if (data.connected !== undefined)
-        setDaemonConnected(Boolean(data.connected))
-    } catch {
-      // ignore
-    } finally {
-      setDaemonGenerating(false)
-    }
-  }
 
   const utils = trpc.useUtils()
   const membersQuery = trpc.workspace.getMembers.useQuery(
@@ -609,89 +561,6 @@ export function AgentSettingsDialog({
               >
                 {leaveWorkspace.isPending ? "Leaving..." : "Leave workspace"}
               </Button>
-            </div>
-          </div>
-        )}
-
-        {tab === "daemon" && (
-          <div className="space-y-5">
-            <div className="flex items-center gap-2">
-              <span
-                className={`h-2 w-2 rounded-full ${daemonConnected ? "bg-green-500" : "bg-muted-foreground/40"}`}
-              />
-              <p className="text-sm font-medium">
-                {daemonConnected ? "Daemon connected" : "No daemon connected"}
-              </p>
-            </div>
-
-            <div className="space-y-3 rounded-xl border bg-muted/10 p-4">
-              <p className="text-sm font-medium">Install the daemon</p>
-              <div className="flex items-center gap-2">
-                <Input
-                  readOnly
-                  value="npm install -g stl-staged"
-                  className="h-9 font-mono text-xs"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-9 shrink-0"
-                  onClick={async () => {
-                    await navigator.clipboard.writeText(
-                      "npm install -g stl-staged"
-                    )
-                  }}
-                >
-                  Copy
-                </Button>
-              </div>
-            </div>
-
-            <div className="space-y-3 rounded-xl border bg-muted/10 p-4">
-              <p className="text-sm font-medium">Connect your machine</p>
-              <p className="text-xs text-muted-foreground">
-                Generate a token and run the command in your terminal. The
-                daemon will connect and give the agent access to your local
-                filesystem.
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-9"
-                disabled={daemonGenerating}
-                onClick={() => void generateDaemonToken()}
-              >
-                {daemonGenerating
-                  ? "Generating..."
-                  : "Generate connect command"}
-              </Button>
-              {daemonCommand && (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Input
-                      readOnly
-                      value={daemonCommand}
-                      className="h-9 font-mono text-xs"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-9 shrink-0"
-                      onClick={async () => {
-                        await navigator.clipboard.writeText(daemonCommand)
-                        setCopiedDaemonCmd(true)
-                        setTimeout(() => setCopiedDaemonCmd(false), 1200)
-                      }}
-                    >
-                      {copiedDaemonCmd ? "Copied" : "Copy"}
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Keep the terminal open. Once connected, the status above
-                    will turn green.
-                  </p>
-                </div>
-              )}
             </div>
           </div>
         )}
