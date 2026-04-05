@@ -293,7 +293,48 @@ function getModel(modelId, keys) {
 
 // src/connect.ts
 var import_ws = __toESM(require("ws"));
+var import_http = require("http");
+var import_promises3 = __toESM(require("fs/promises"));
+var import_path3 = __toESM(require("path"));
+var import_os2 = __toESM(require("os"));
 var import_ai2 = require("ai");
+var BROWSE_PORT = 39281;
+function startBrowseServer() {
+  const server = (0, import_http.createServer)(async (req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+    const url = new URL(req.url ?? "/", `http://localhost:${BROWSE_PORT}`);
+    const dirPath = url.searchParams.get("path") || import_os2.default.homedir();
+    try {
+      const resolved = import_path3.default.resolve(dirPath);
+      const entries = await import_promises3.default.readdir(resolved, { withFileTypes: true });
+      const folders = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".")).map((e) => e.name).sort();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          path: resolved,
+          name: import_path3.default.basename(resolved),
+          parent: import_path3.default.dirname(resolved),
+          folders
+        })
+      );
+    } catch {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Cannot read directory" }));
+    }
+  });
+  server.listen(BROWSE_PORT, "127.0.0.1", () => {
+    process.stdout.write(`Browse server listening on http://localhost:${BROWSE_PORT}
+`);
+  });
+  server.on("error", () => {
+  });
+}
 function parseConnectArgs(argv) {
   let wsUrl;
   let token;
@@ -470,6 +511,7 @@ async function runConnectMode(argv) {
   }
   const { wsUrl, token } = args;
   const connectUrl = `${wsUrl}?token=${encodeURIComponent(token)}`;
+  startBrowseServer();
   let delay = RECONNECT_DELAY_MS;
   process.stdout.write(`Staged daemon connecting to ${wsUrl}
 `);

@@ -6,12 +6,68 @@
  */
 
 import WebSocket from "ws"
+import { createServer } from "http"
 import { randomUUID } from "crypto"
+import fs from "fs/promises"
+import path from "path"
+import os from "os"
 import { streamText, stepCountIs } from "ai"
 import type { ModelMessage } from "ai"
 import { loadSession, saveSession } from "./session"
 import { buildTools } from "./tools"
 import { getModel, type ProviderKeys } from "./models"
+
+// ---------------------------------------------------------------------------
+// Local browse server — lets the browser navigate the local filesystem
+// ---------------------------------------------------------------------------
+
+export const BROWSE_PORT = 39281
+
+function startBrowseServer(): void {
+  const server = createServer(async (req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*")
+    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS")
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204)
+      res.end()
+      return
+    }
+
+    const url = new URL(req.url ?? "/", `http://localhost:${BROWSE_PORT}`)
+    const dirPath = url.searchParams.get("path") || os.homedir()
+
+    try {
+      const resolved = path.resolve(dirPath)
+      const entries = await fs.readdir(resolved, { withFileTypes: true })
+      const folders = entries
+        .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+        .map((e) => e.name)
+        .sort()
+
+      res.writeHead(200, { "Content-Type": "application/json" })
+      res.end(
+        JSON.stringify({
+          path: resolved,
+          name: path.basename(resolved),
+          parent: path.dirname(resolved),
+          folders,
+        })
+      )
+    } catch {
+      res.writeHead(400, { "Content-Type": "application/json" })
+      res.end(JSON.stringify({ error: "Cannot read directory" }))
+    }
+  })
+
+  server.listen(BROWSE_PORT, "127.0.0.1", () => {
+    process.stdout.write(`Browse server listening on http://localhost:${BROWSE_PORT}\n`)
+  })
+
+  server.on("error", () => {
+    // Port already in use — another daemon instance is running, that's fine
+  })
+}
 
 // ---------------------------------------------------------------------------
 // Arg parsing
@@ -269,6 +325,8 @@ export async function runConnectMode(argv: string[]): Promise<void> {
 
   const { wsUrl, token } = args
   const connectUrl = `${wsUrl}?token=${encodeURIComponent(token)}`
+
+  startBrowseServer()
 
   let delay = RECONNECT_DELAY_MS
 

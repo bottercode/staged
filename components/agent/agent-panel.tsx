@@ -841,82 +841,186 @@ function ConnectScreen({
     )
   }
 
-  // ── Daemon connected: pick local path ──
+  // ── Daemon connected: folder browser via local daemon ──
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center bg-background px-8">
-      <div className="w-full max-w-sm space-y-5">
-        <div className="space-y-2 text-center">
-          <div className="mb-4 flex justify-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border bg-muted">
-              <Sparkles className="h-6 w-6 text-foreground/70" />
-            </div>
-          </div>
-          <div className="flex items-center justify-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-green-500" />
-            <p className="text-sm font-medium text-green-600 dark:text-green-400">
-              Daemon connected
-            </p>
-          </div>
-          <h1 className="text-xl font-semibold tracking-tight">
-            Open a project
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Enter the path to a folder on your machine.
-          </p>
-        </div>
+    <LocalFolderBrowser
+      onSelect={connect}
+      recentFolders={recentFolders}
+      onRemoveRecentFolder={onRemoveRecentFolder}
+    />
+  )
+}
 
+// ── Local folder browser (calls daemon's browse server at localhost:39281) ──
+
+const BROWSE_PORT = 39281
+
+type BrowseData = {
+  path: string
+  name: string
+  parent: string
+  folders: string[]
+}
+
+function LocalFolderBrowser({
+  onSelect,
+  recentFolders,
+  onRemoveRecentFolder,
+}: {
+  onSelect: (path: string, info: ProjectInfo) => void
+  recentFolders: string[]
+  onRemoveRecentFolder: (path: string) => void
+}) {
+  const [browseData, setBrowseData] = useState<BrowseData | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [pathInput, setPathInput] = useState("")
+
+  const browse = useCallback(async (dirPath?: string) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const url = new URL(`http://localhost:${BROWSE_PORT}/browse`)
+      if (dirPath) url.searchParams.set("path", dirPath)
+      const res = await fetch(url.toString())
+      const data = (await res.json()) as BrowseData & { error?: string }
+      if (data.error) {
+        setError(data.error)
+        setLoading(false)
+        return
+      }
+      setBrowseData(data)
+      setPathInput(data.path)
+    } catch {
+      setError(
+        "Cannot reach daemon browse server. Make sure stl-staged is running."
+      )
+    }
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    void browse()
+  }, [browse])
+
+  const open = (p: string) => {
+    onSelect(p, {
+      valid: true,
+      name: p.split("/").pop() || p,
+      path: p,
+      fileCount: 0,
+      projectType: "",
+      isGit: false,
+      files: [],
+    })
+  }
+
+  return (
+    <div className="flex h-full w-full flex-col bg-background">
+      {/* Header */}
+      <div className="flex items-center gap-2 border-b px-4 py-3">
+        <span className="h-2 w-2 rounded-full bg-green-500" />
+        <span className="text-sm font-medium">Open a project folder</span>
+      </div>
+
+      {/* Path bar */}
+      <div className="flex items-center gap-2 border-b px-4 py-2">
+        <button
+          onClick={() => browseData && void browse(browseData.parent)}
+          disabled={loading || !browseData}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted disabled:opacity-40"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
         <form
+          className="flex-1"
           onSubmit={(e) => {
             e.preventDefault()
-            connect(pathInput)
+            if (pathInput.trim()) void browse(pathInput.trim())
           }}
-          className="space-y-3"
         >
           <input
             value={pathInput}
             onChange={(e) => setPathInput(e.target.value)}
-            placeholder="/Users/you/projects/my-app"
-            className="w-full rounded-md border bg-muted/50 px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none"
-            autoFocus
+            className="w-full rounded border bg-muted/50 px-3 py-1.5 font-mono text-xs text-foreground focus:border-primary/50 focus:outline-none"
           />
-          {error && <p className="text-xs text-destructive">{error}</p>}
-          <Button className="w-full" disabled={!pathInput.trim() || loading}>
-            {loading && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
-            Open project
-          </Button>
         </form>
+      </div>
 
+      {/* Folder list */}
+      <div className="flex-1 overflow-y-auto p-2">
+        {loading && !browseData ? (
+          <div className="flex h-full items-center justify-center">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : error ? (
+          <p className="px-3 py-8 text-center text-xs text-destructive">
+            {error}
+          </p>
+        ) : browseData ? (
+          <div className="space-y-0.5">
+            {browseData.folders.length === 0 && (
+              <p className="px-3 py-8 text-center text-xs text-muted-foreground">
+                No subfolders
+              </p>
+            )}
+            {browseData.folders.map((folder) => (
+              <button
+                key={folder}
+                onClick={() => void browse(`${browseData.path}/${folder}`)}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-muted",
+                  pathInput === `${browseData.path}/${folder}` &&
+                    "bg-primary/10 text-primary"
+                )}
+              >
+                <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="truncate">{folder}</span>
+                <ChevronRight className="ml-auto h-3 w-3 text-muted-foreground/50" />
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      {/* Recent + open */}
+      <div className="space-y-2 border-t p-3">
         {recentFolders.length > 0 && (
-          <div className="space-y-1.5">
-            <p className="text-xs text-muted-foreground">Recent</p>
-            <div className="space-y-1">
-              {recentFolders.map((folder) => {
-                const name = folder.split("/").pop() || folder
-                return (
-                  <div key={folder} className="group flex items-center gap-2">
-                    <button
-                      onClick={() => connect(folder)}
-                      disabled={loading}
-                      className="flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                    >
-                      <FolderOpen className="h-3 w-3 shrink-0" />
-                      <span className="truncate font-mono">{name}</span>
-                      <span className="ml-auto truncate text-[10px] opacity-50">
-                        {folder}
-                      </span>
-                    </button>
-                    <button
-                      onClick={() => onRemoveRecentFolder(folder)}
-                      className="opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
+          <div className="flex flex-wrap gap-1.5">
+            {recentFolders.map((folder) => {
+              const name = folder.split("/").pop() || folder
+              return (
+                <div key={folder} className="group flex items-center gap-1">
+                  <button
+                    onClick={() => open(folder)}
+                    className="flex items-center gap-1 rounded border bg-muted/30 px-2 py-1 font-mono text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <FolderOpen className="h-3 w-3" />
+                    {name}
+                  </button>
+                  <button
+                    onClick={() => onRemoveRecentFolder(folder)}
+                    className="opacity-0 group-hover:opacity-100 hover:text-destructive"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              )
+            })}
           </div>
         )}
+        <div className="flex items-center justify-between">
+          <span className="truncate font-mono text-xs text-muted-foreground">
+            {browseData?.name || "—"}
+          </span>
+          <Button
+            size="sm"
+            disabled={!browseData}
+            onClick={() => browseData && open(browseData.path)}
+          >
+            Open
+          </Button>
+        </div>
       </div>
     </div>
   )

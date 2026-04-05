@@ -46,57 +46,62 @@ export function ensureDaemonWebSocketServer(server: HttpServer) {
     })
   })
 
-  wss.on(
-    "connection",
-    (ws, context: { userId: string }) => {
-      const { userId } = context
+  wss.on("connection", (ws, context: { userId: string }) => {
+    const { userId } = context
 
-      registerDaemon(userId, ws)
+    registerDaemon(userId, ws)
 
-      safeSend(ws, {
-        type: "connected",
-        userId,
-        ts: Date.now(),
-      })
+    safeSend(ws, {
+      type: "connected",
+      userId,
+      ts: Date.now(),
+    })
 
-      const heartbeat = setInterval(() => {
-        safeSend(ws, { type: "ping", ts: Date.now() })
-      }, HEARTBEAT_MS)
+    const heartbeat = setInterval(() => {
+      // Protocol-level ping keeps Render's proxy from closing idle connections
+      try {
+        ws.ping()
+      } catch {
+        /* ignore */
+      }
+    }, HEARTBEAT_MS)
 
-      ws.on("message", (raw) => {
-        try {
-          const msg = JSON.parse(String(raw)) as {
-            type?: string
-            jobId?: string
-            event?: Record<string, unknown>
-          }
-
-          if (msg.type === "pong") return
-
-          if (msg.type === "event" && msg.jobId && msg.event) {
-            receiveDaemonEvent(userId, msg.jobId, msg.event)
-          }
-
-          // When the daemon sends a terminal result event, also forward it
-          if (msg.type === "done" && msg.jobId) {
-            receiveDaemonEvent(userId, msg.jobId, { type: "done", jobId: msg.jobId })
-          }
-        } catch {
-          // ignore malformed frames
+    ws.on("message", (raw) => {
+      try {
+        const msg = JSON.parse(String(raw)) as {
+          type?: string
+          jobId?: string
+          event?: Record<string, unknown>
         }
-      })
 
-      ws.on("close", () => {
-        clearInterval(heartbeat)
-        unregisterDaemon(userId, ws)
-      })
+        if (msg.type === "pong") return
 
-      ws.on("error", () => {
-        clearInterval(heartbeat)
-        unregisterDaemon(userId, ws)
-      })
-    }
-  )
+        if (msg.type === "event" && msg.jobId && msg.event) {
+          receiveDaemonEvent(userId, msg.jobId, msg.event)
+        }
+
+        // When the daemon sends a terminal result event, also forward it
+        if (msg.type === "done" && msg.jobId) {
+          receiveDaemonEvent(userId, msg.jobId, {
+            type: "done",
+            jobId: msg.jobId,
+          })
+        }
+      } catch {
+        // ignore malformed frames
+      }
+    })
+
+    ws.on("close", () => {
+      clearInterval(heartbeat)
+      unregisterDaemon(userId, ws)
+    })
+
+    ws.on("error", () => {
+      clearInterval(heartbeat)
+      unregisterDaemon(userId, ws)
+    })
+  })
 
   globalThis.__stagedDaemonWsServer = {
     path: DAEMON_WS_PATH,
