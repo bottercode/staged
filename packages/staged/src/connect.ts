@@ -332,7 +332,20 @@ export async function runConnectMode(argv: string[]): Promise<void> {
 
   process.stdout.write(`Staged daemon connecting to ${wsUrl}\n`)
 
-  const connect = (): void => {
+  // HTTP URL used to warm up the server-side WS handler before each connect attempt.
+  // The Pages API route (pages/api/agent/daemon/ws.ts) lazily registers the upgrade
+  // listener on the HTTP server — if it hasn't been called yet, the WebSocket upgrade
+  // is unhandled and Node destroys the socket (code 1006).
+  const httpWarmupUrl = wsUrl
+    .replace(/^wss:\/\//, "https://")
+    .replace(/^ws:\/\//, "http://")
+
+  const connect = async (): Promise<void> => {
+    // Warm up: ensure the server-side WS handler is registered before we connect
+    try {
+      await fetch(httpWarmupUrl, { signal: AbortSignal.timeout(10_000) })
+    } catch { /* ignore — e.g. server restarting; WebSocket connect will fail and retry */ }
+
     const ws = new WebSocket(connectUrl)
     const activeJobs = new Set<string>()
 
@@ -385,7 +398,7 @@ export async function runConnectMode(argv: string[]): Promise<void> {
       process.stdout.write(`Disconnected (code ${code}). Reconnecting in ${delay / 1000}s...\n`)
       setTimeout(() => {
         delay = Math.min(delay * 2, MAX_RECONNECT_DELAY_MS)
-        connect()
+        connect().catch(() => { /* reconnect loop continues on error */ })
       }, delay)
     })
 
@@ -394,7 +407,7 @@ export async function runConnectMode(argv: string[]): Promise<void> {
     })
   }
 
-  connect()
+  connect().catch(() => { /* reconnect loop continues on error */ })
 
   // Keep process alive
   await new Promise<never>(() => { /* run forever */ })
