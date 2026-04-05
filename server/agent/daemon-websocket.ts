@@ -8,7 +8,7 @@ import {
 } from "@/server/agent/daemon-registry"
 
 const DAEMON_WS_PATH = "/api/agent/daemon/ws"
-const HEARTBEAT_MS = 15_000
+const HEARTBEAT_MS = 8_000
 
 declare global {
   var __stagedDaemonWsServer: { path: string; startedAt: number } | undefined
@@ -58,12 +58,9 @@ export function ensureDaemonWebSocketServer(server: HttpServer) {
     })
 
     const heartbeat = setInterval(() => {
-      // Protocol-level ping keeps Render's proxy from closing idle connections
-      try {
-        ws.ping()
-      } catch {
-        /* ignore */
-      }
+      // Send a data frame — Render's proxy only resets its idle timer on data
+      // frames, not on protocol-level ping/pong control frames.
+      safeSend(ws, { type: "ping", ts: Date.now() })
     }, HEARTBEAT_MS)
 
     ws.on("message", (raw) => {

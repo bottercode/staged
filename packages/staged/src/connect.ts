@@ -349,7 +349,9 @@ export async function runConnectMode(argv: string[]): Promise<void> {
     const ws = new WebSocket(connectUrl)
     const activeJobs = new Set<string>()
 
-    // Client-side keepalive — keeps Render's proxy from closing idle connections
+    // Client-side keepalive — send JSON data frames so Render's proxy resets its
+    // idle timer. Protocol-level ping/pong control frames do NOT reset Render's
+    // idle timer; only data frames do.
     let keepaliveTimer: ReturnType<typeof setInterval> | null = null
 
     ws.on("open", () => {
@@ -357,9 +359,11 @@ export async function runConnectMode(argv: string[]): Promise<void> {
       process.stdout.write("Connected. Waiting for jobs...\n")
       keepaliveTimer = setInterval(() => {
         if (ws.readyState === ws.OPEN) {
-          try { ws.ping() } catch { /* ignore */ }
+          try {
+            ws.send(JSON.stringify({ type: "pong" }))
+          } catch { /* ignore */ }
         }
-      }, 20_000)
+      }, 10_000)
     })
 
     ws.on("message", (raw) => {
