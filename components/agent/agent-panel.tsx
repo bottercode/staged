@@ -658,7 +658,41 @@ function TaskSelector({
 
 // ── Connect screen ───────────────────────────────────────
 
+const RELEASE_BASE =
+  "https://github.com/bottercode/staged/releases/latest/download"
+
+function getDownloadUrl(): { url: string; label: string } {
+  if (typeof window === "undefined")
+    return {
+      url: `${RELEASE_BASE}/Staged-mac-arm64.dmg`,
+      label: "Download for macOS",
+    }
+  const ua = navigator.userAgent
+  if (ua.includes("Win"))
+    return {
+      url: `${RELEASE_BASE}/Staged-win.exe`,
+      label: "Download for Windows",
+    }
+  if (ua.includes("Linux"))
+    return {
+      url: `${RELEASE_BASE}/Staged-linux.AppImage`,
+      label: "Download for Linux",
+    }
+  // macOS — pick arch
+  const isArm =
+    (ua.includes("Mac") &&
+      (navigator as unknown as { userAgentData?: { platform?: string } })
+        .userAgentData?.platform === "macOS") ||
+    /Apple Silicon|arm64/.test(ua)
+  return {
+    url: `${RELEASE_BASE}/${isArm ? "Staged-mac-arm64.dmg" : "Staged-mac-x64.dmg"}`,
+    label: "Download for macOS",
+  }
+}
+
 function ConnectScreen() {
+  const { url, label } = getDownloadUrl()
+
   return (
     <div className="flex h-full w-full flex-col items-center justify-center bg-background px-8">
       <div className="w-full max-w-xs space-y-5 text-center">
@@ -679,12 +713,11 @@ function ConnectScreen() {
         </div>
 
         <a
-          href="https://github.com/bottercode/staged/releases/latest"
-          target="_blank"
-          rel="noopener noreferrer"
+          href={url}
+          download
           className="inline-flex w-full items-center justify-center gap-2 rounded-lg border bg-foreground px-4 py-2.5 text-sm font-medium text-background transition-opacity hover:opacity-90"
         >
-          Download Staged
+          {label}
           <ArrowRight className="h-4 w-4" />
         </a>
 

@@ -60,6 +60,7 @@
     "icon": "resources/icon.png",
     "mac": {
       "icon": "resources/icon.png",
+      "artifactName": "Staged-mac-${arch}.dmg",
       "target": [
         {
           "target": "dmg",
@@ -73,10 +74,12 @@
     },
     "win": {
       "icon": "resources/icon.png",
+      "artifactName": "Staged-win.exe",
       "target": "nsis"
     },
     "linux": {
       "icon": "resources/icon.png",
+      "artifactName": "Staged-linux.AppImage",
       "target": "AppImage"
     }
   }
