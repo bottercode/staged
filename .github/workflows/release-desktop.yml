@@ -30,6 +30,13 @@ jobs:
         run: npm run package:mac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Strip quarantine from DMGs
+        run: |
+          for f in packages/desktop/release/*.dmg; do
+            xattr -cr "$f" || true
+          done
 
       - name: Upload mac artifacts
         uses: softprops/action-gh-release@v2

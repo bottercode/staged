@@ -61,6 +61,7 @@
     "mac": {
       "icon": "resources/icon.png",
       "artifactName": "Staged-mac-${arch}.dmg",
+      "identity": null,
       "target": [
         {
           "target": "dmg",
