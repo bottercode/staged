@@ -679,7 +679,7 @@ function ConnectScreen() {
         </div>
 
         <a
-          href="https://staged.bottercode.com/download"
+          href="https://github.com/bottercode/staged/releases/latest"
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex w-full items-center justify-center gap-2 rounded-lg border bg-foreground px-4 py-2.5 text-sm font-medium text-background transition-opacity hover:opacity-90"

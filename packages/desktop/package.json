@@ -48,7 +48,9 @@
     "files": [
       "out/**/*"
     ],
+    "icon": "resources/icon.png",
     "mac": {
+      "icon": "resources/icon.png",
       "target": [
         {
           "target": "dmg",
@@ -61,9 +63,11 @@
       "category": "public.app-category.developer-tools"
     },
     "win": {
+      "icon": "resources/icon.png",
       "target": "nsis"
     },
     "linux": {
+      "icon": "resources/icon.png",
       "target": "AppImage"
     }
   }
