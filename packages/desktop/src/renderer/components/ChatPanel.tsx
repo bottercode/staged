@@ -15,6 +15,7 @@ import {
   Sparkles,
   Plus,
 } from "lucide-react"
+import logo from "../assets/logo.png"
 
 // ── Types ─────────────────────────────────────────────────
 
@@ -539,9 +540,7 @@ export function ChatPanel({
         <div className="space-y-3 p-4 text-sm">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center py-24">
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border bg-muted">
-                <Sparkles className="h-6 w-6 text-foreground/60" />
-              </div>
+              <img src={logo} alt="Staged" className="mb-4 h-12 w-12 rounded-2xl" />
               <p className="text-lg font-semibold text-foreground">What should we build?</p>
               <p className="mt-1 text-xs text-muted-foreground">{projectName}</p>
               <div className="mt-8 flex flex-wrap justify-center gap-2">

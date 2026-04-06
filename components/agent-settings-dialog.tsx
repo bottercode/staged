@@ -110,12 +110,27 @@ export function AgentSettingsDialog({
     },
   })
   const createInviteLink = trpc.workspace.createInviteLink.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (data) => {
+      if (workspaceId && data.id) {
+        utils.workspace.getInviteLink.setData(
+          { workspaceId },
+          {
+            id: data.id,
+            url: data.url,
+            createdAt: data.createdAt,
+            role: linkRole,
+          }
+        )
+      }
       await utils.workspace.getInviteLink.invalidate()
     },
   })
   const revokeInviteLink = trpc.workspace.revokeInviteLink.useMutation({
     onSuccess: async () => {
+      createInviteLink.reset()
+      if (workspaceId) {
+        utils.workspace.getInviteLink.setData({ workspaceId }, null)
+      }
       await utils.workspace.getInviteLink.invalidate()
     },
   })
@@ -258,159 +273,192 @@ export function AgentSettingsDialog({
           ))}
         </div>
 
-        {tab === "members" && (
-          <div className="space-y-5">
-            <div className="rounded-xl border bg-muted/10 p-4">
-              <p className="mb-3 text-sm font-medium text-muted-foreground">
-                Invite via workspace link
-              </p>
-              {inviteLinkQuery.data?.url ? (
-                <>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      readOnly
-                      value={inviteLinkQuery.data.url}
-                      className="h-9"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-9"
-                      onClick={async () => {
-                        await navigator.clipboard.writeText(
-                          inviteLinkQuery.data!.url
-                        )
-                        setCopiedInviteLink(true)
-                        window.setTimeout(
-                          () => setCopiedInviteLink(false),
-                          1200
-                        )
-                      }}
-                    >
-                      {copiedInviteLink ? "Copied" : "Copy"}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-9 border-destructive text-destructive hover:bg-destructive/10"
-                      disabled={revokeInviteLink.isPending || !workspaceId}
-                      onClick={() => {
-                        if (!workspaceId || !inviteLinkQuery.data?.id) return
-                        revokeInviteLink.mutate({
-                          workspaceId,
-                          inviteLinkId: inviteLinkQuery.data.id,
-                        })
-                      }}
-                    >
-                      Revoke
-                    </Button>
-                  </div>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    Invitees join as{" "}
-                    <span className="font-medium capitalize">
-                      {inviteLinkQuery.data.role}
-                    </span>
+        {tab === "members" &&
+          (() => {
+            // Use query data if available; fall back to mutation return value so the
+            // link appears immediately after creation without waiting for a refetch.
+            const activeLink =
+              inviteLinkQuery.data ??
+              (createInviteLink.isSuccess && createInviteLink.data?.url
+                ? {
+                    id: createInviteLink.data.id ?? "",
+                    url: createInviteLink.data.url,
+                    role: linkRole,
+                    createdAt: createInviteLink.data.createdAt,
+                  }
+                : null)
+
+            return (
+              <div className="space-y-5">
+                <div className="rounded-xl border bg-muted/10 p-4">
+                  <p className="mb-3 text-sm font-medium text-muted-foreground">
+                    Invite via workspace link
                   </p>
-                </>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <select
-                    className="h-9 rounded-md border bg-background px-3 text-sm"
-                    value={linkRole}
-                    onChange={(event) =>
-                      setLinkRole(event.target.value as "member" | "admin")
-                    }
-                  >
-                    <option value="member">Member</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-9"
-                    disabled={createInviteLink.isPending || !workspaceId}
-                    onClick={() => {
-                      if (!workspaceId) return
-                      createInviteLink.mutate({ workspaceId, role: linkRole })
-                    }}
-                  >
-                    {createInviteLink.isPending
-                      ? "Creating link..."
-                      : "Create invite link"}
-                  </Button>
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-3">
-              <p className="text-xs tracking-wider text-muted-foreground uppercase">
-                Current Members
-              </p>
-
-              {membersQuery.isLoading && (
-                <p className="text-sm text-muted-foreground">
-                  Loading members...
-                </p>
-              )}
-
-              {!membersQuery.isLoading && sortedMembers.length === 0 && (
-                <p className="text-sm text-muted-foreground">No members yet</p>
-              )}
-
-              <div className="space-y-3">
-                {sortedMembers.map((member) => {
-                  const you = member.userId === currentUserId
-                  const name = member.name || titleFromEmail(member.email)
-                  return (
-                    <div
-                      key={member.userId}
-                      className="flex items-center gap-3"
-                    >
-                      <Avatar className="h-9 w-9">
-                        <AvatarImage src={member.avatarUrl ?? undefined} />
-                        <AvatarFallback>{name[0] || "U"}</AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">
-                          {name}
-                          {you ? (
-                            <span className="ml-1 text-muted-foreground">
-                              (you)
-                            </span>
-                          ) : null}
-                        </p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {member.email}
-                        </p>
-                        <p className="text-xs text-muted-foreground capitalize">
-                          {member.role}
-                        </p>
-                      </div>
-                      {!you && (
+                  {activeLink?.url ? (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          readOnly
+                          value={activeLink.url}
+                          className="h-9"
+                        />
                         <Button
                           type="button"
                           variant="outline"
-                          size="sm"
-                          className="h-7 border-destructive text-destructive hover:bg-destructive/10"
-                          disabled={removeMember.isPending || !workspaceId}
+                          className="h-9"
+                          onClick={async () => {
+                            await navigator.clipboard.writeText(activeLink.url)
+                            setCopiedInviteLink(true)
+                            window.setTimeout(
+                              () => setCopiedInviteLink(false),
+                              1200
+                            )
+                          }}
+                        >
+                          {copiedInviteLink ? "Copied" : "Copy"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-9 border-destructive text-destructive hover:bg-destructive/10"
+                          disabled={
+                            revokeInviteLink.isPending ||
+                            !workspaceId ||
+                            !activeLink.id
+                          }
                           onClick={() => {
-                            if (!workspaceId) return
-                            removeMember.mutate({
+                            if (!workspaceId || !activeLink.id) return
+                            revokeInviteLink.mutate({
                               workspaceId,
-                              userId: member.userId,
+                              inviteLinkId: activeLink.id,
                             })
                           }}
                         >
-                          Remove
+                          Revoke
                         </Button>
+                      </div>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Invitees join as{" "}
+                        <span className="font-medium capitalize">
+                          {activeLink.role}
+                        </span>
+                      </p>
+                    </>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-2">
+                        <select
+                          className="h-9 rounded-md border bg-background px-3 text-sm"
+                          value={linkRole}
+                          onChange={(event) =>
+                            setLinkRole(
+                              event.target.value as "member" | "admin"
+                            )
+                          }
+                        >
+                          <option value="member">Member</option>
+                          <option value="admin">Admin</option>
+                        </select>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-9"
+                          disabled={createInviteLink.isPending || !workspaceId}
+                          onClick={() => {
+                            if (!workspaceId) return
+                            createInviteLink.mutate({
+                              workspaceId,
+                              role: linkRole,
+                            })
+                          }}
+                        >
+                          {createInviteLink.isPending
+                            ? "Creating link..."
+                            : "Create invite link"}
+                        </Button>
+                      </div>
+                      {createInviteLink.isError && (
+                        <p className="text-xs text-destructive">
+                          {createInviteLink.error.message ||
+                            "Failed to create link."}
+                        </p>
                       )}
                     </div>
-                  )
-                })}
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  <p className="text-xs tracking-wider text-muted-foreground uppercase">
+                    Current Members
+                  </p>
+
+                  {membersQuery.isLoading && (
+                    <p className="text-sm text-muted-foreground">
+                      Loading members...
+                    </p>
+                  )}
+
+                  {!membersQuery.isLoading && sortedMembers.length === 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      No members yet
+                    </p>
+                  )}
+
+                  <div className="space-y-3">
+                    {sortedMembers.map((member) => {
+                      const you = member.userId === currentUserId
+                      const name = member.name || titleFromEmail(member.email)
+                      return (
+                        <div
+                          key={member.userId}
+                          className="flex items-center gap-3"
+                        >
+                          <Avatar className="h-9 w-9">
+                            <AvatarImage src={member.avatarUrl ?? undefined} />
+                            <AvatarFallback>{name[0] || "U"}</AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">
+                              {name}
+                              {you ? (
+                                <span className="ml-1 text-muted-foreground">
+                                  (you)
+                                </span>
+                              ) : null}
+                            </p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {member.email}
+                            </p>
+                            <p className="text-xs text-muted-foreground capitalize">
+                              {member.role}
+                            </p>
+                          </div>
+                          {!you && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 border-destructive text-destructive hover:bg-destructive/10"
+                              disabled={removeMember.isPending || !workspaceId}
+                              onClick={() => {
+                                if (!workspaceId) return
+                                removeMember.mutate({
+                                  workspaceId,
+                                  userId: member.userId,
+                                })
+                              }}
+                            >
+                              Remove
+                            </Button>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-        )}
+            )
+          })()}
 
         {tab === "apps" && (
           <div className="space-y-4">

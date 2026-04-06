@@ -558,13 +558,6 @@ if (!gotLock) app.quit();
 app.on("web-contents-created", (_event, contents) => {
   if (contents.getType() !== "webview") return;
   contents.on("will-navigate", (navEvent, url) => {
-    if (url.includes("/workspace/agent")) {
-      navEvent.preventDefault();
-      BrowserWindow.getAllWindows().forEach((win) => {
-        if (!win.isDestroyed()) win.webContents.send("section:switch", "agent");
-      });
-      return;
-    }
     const isOAuthUrl = url.includes("accounts.google.com") || url.includes(`${BASE_URL}/api/auth/signin/google`) || url.includes("/api/auth/signin/google");
     if (!isOAuthUrl) return;
     navEvent.preventDefault();
@@ -577,11 +570,6 @@ app.on("web-contents-created", (_event, contents) => {
       BrowserWindow.getAllWindows().forEach((win) => {
         if (!win.isDestroyed()) win.webContents.send("section:switch", "agent");
       });
-      if (contents.canGoBack()) {
-        contents.goBack();
-      } else {
-        void contents.loadURL(`${BASE_URL}/workspace`);
-      }
     }
   });
   contents.on("did-navigate", (_, url) => {

@@ -7,6 +7,7 @@ import {
   Settings2,
 } from "lucide-react"
 import type { Section } from "../types"
+import logo from "../assets/logo.png"
 
 type NavItem = { id: Section; icon: React.ReactNode; label: string }
 
@@ -40,9 +41,9 @@ export function NavRail({
       {/* Workspace / brand button */}
       <button
         title="Staged"
-        className="mb-1 flex h-8 w-8 items-center justify-center rounded-lg bg-white/90 text-xs font-bold text-black transition-opacity hover:opacity-90 titlebar-no-drag"
+        className="mb-1 titlebar-no-drag transition-opacity hover:opacity-80"
       >
-        S
+        <img src={logo} alt="Staged" className="h-8 w-8 rounded-lg" />
       </button>
 
       {/* Divider */}

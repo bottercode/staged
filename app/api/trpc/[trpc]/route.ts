@@ -12,6 +12,9 @@ const handler = (req: Request) =>
     endpoint: "/api/trpc",
     req,
     router: appRouter,
+    onError: ({ error, path }) => {
+      console.error(`[tRPC error] ${path ?? "unknown"}:`, error.cause ?? error)
+    },
     createContext: async () => {
       const session = await getServerSession(authOptions)
       const email = session?.user?.email?.trim().toLowerCase()

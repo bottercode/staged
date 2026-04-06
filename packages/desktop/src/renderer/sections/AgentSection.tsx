@@ -7,14 +7,16 @@ export function AgentSection({
   setCwd,
   session,
   onHistoryUpdate,
+  onGoToWorkspace,
 }: {
   cwd: string | null
   setCwd: (path: string | null) => void
   session: AgentSession
   onHistoryUpdate: (id: string, history: unknown[]) => void
+  onGoToWorkspace: () => void
 }) {
   if (!cwd) {
-    return <FolderPicker onSelect={setCwd} />
+    return <FolderPicker onSelect={setCwd} onGoToWorkspace={onGoToWorkspace} />
   }
 
   const handleSwitchRepo = async () => {

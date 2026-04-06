@@ -1,83 +1,73 @@
-import { FolderOpen, Plus, MessageSquare, X, ChevronLeft } from "lucide-react"
-import type { AgentSession } from "../../App"
+import {
+  MessageCircle,
+  SquareKanban,
+  BookOpen,
+  Building2,
+  Sparkles,
+  Settings2,
+} from "lucide-react"
+import type { Section } from "../../types"
+import logo from "../../assets/logo.png"
+
+const NAV_ITEMS: { id: Section; icon: React.ReactNode; label: string }[] = [
+  { id: "chat",    icon: <MessageCircle className="h-[18px] w-[18px]" />, label: "Chat" },
+  { id: "tasks",   icon: <SquareKanban  className="h-[18px] w-[18px]" />, label: "Tasks" },
+  { id: "docs",    icon: <BookOpen      className="h-[18px] w-[18px]" />, label: "Docs" },
+  { id: "portals", icon: <Building2     className="h-[18px] w-[18px]" />, label: "Client Portals" },
+  { id: "agent",   icon: <Sparkles      className="h-[18px] w-[18px]" />, label: "AI Agent" },
+]
 
 export function AgentSidebar({
-  cwd,
-  sessions,
-  activeSessionId,
-  onSelectSession,
-  onNewSession,
-  onCloseSession,
-  onCollapse,
+  activeSection,
+  onSelectSection,
+  onSettings,
 }: {
-  cwd: string | null
-  sessions: AgentSession[]
-  activeSessionId: string
-  onSelectSession: (id: string) => void
-  onNewSession: () => void
-  onCloseSession: (id: string) => void
-  onCollapse: () => void
+  activeSection: Section
+  onSelectSection: (s: Section) => void
+  onSettings: () => void
 }) {
+  const isMac = window.api.platform === "darwin"
+
   return (
-    <div className="flex flex-col gap-1 p-2">
-      {cwd && (
-        <div className="mb-1 flex items-center gap-2 rounded-md px-2 py-1.5">
-          <FolderOpen size={13} className="shrink-0 text-white/30" />
-          <span className="truncate font-mono text-[11px] text-white/40">
-            {cwd.split("/").pop()}
-          </span>
-        </div>
-      )}
+    <aside className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-white/[0.05] bg-[#0a0a0a] py-3">
+      <div
+        className="titlebar-drag flex w-full items-center justify-center"
+        style={{ height: isMac ? 28 : 0 }}
+      />
 
-      <div className="flex items-center justify-between px-2 py-1">
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-white/25">
-          Chats
-        </span>
-        <div className="flex items-center gap-0.5">
-          <button
-            onClick={onNewSession}
-            className="rounded p-0.5 text-white/25 hover:bg-white/[0.06] hover:text-white/50 transition-colors"
-            title="New chat"
-          >
-            <Plus size={13} />
-          </button>
-          <button
-            onClick={onCollapse}
-            className="rounded p-0.5 text-white/25 hover:bg-white/[0.06] hover:text-white/50 transition-colors"
-            title="Collapse sidebar"
-          >
-            <ChevronLeft size={13} />
-          </button>
-        </div>
-      </div>
+      {/* Brand */}
+      <button title="Staged" className="mb-1 titlebar-no-drag transition-opacity hover:opacity-80">
+        <img src={logo} alt="Staged" className="h-8 w-8 rounded-lg" />
+      </button>
 
-      {sessions.map((s) => (
-        <div
-          key={s.id}
-          className={`group flex w-full items-center gap-2 rounded-md px-2 py-1.5 transition-colors ${
-            s.id === activeSessionId
-              ? "bg-white/[0.08] text-white/90"
-              : "text-white/40 hover:bg-white/[0.04] hover:text-white/60"
-          }`}
-        >
+      <div className="mb-1 h-px w-6 bg-white/[0.08]" />
+
+      {/* Nav icons */}
+      <nav className="flex flex-1 flex-col items-center gap-1">
+        {NAV_ITEMS.map((item) => (
           <button
-            onClick={() => onSelectSession(s.id)}
-            className="flex flex-1 items-center gap-2 text-left min-w-0"
+            key={item.id}
+            onClick={() => onSelectSection(item.id)}
+            title={item.label}
+            className={`titlebar-no-drag flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
+              activeSection === item.id
+                ? "bg-white/90 text-black"
+                : "text-white/40 hover:bg-white/[0.08] hover:text-white/80"
+            }`}
           >
-            <MessageSquare size={13} className="shrink-0" />
-            <span className="truncate text-[12px]">{s.name}</span>
+            {item.icon}
           </button>
-          {sessions.length > 1 && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onCloseSession(s.id) }}
-              className="shrink-0 opacity-0 group-hover:opacity-100 rounded p-0.5 transition-opacity hover:text-white/70"
-              title="Close chat"
-            >
-              <X size={11} />
-            </button>
-          )}
-        </div>
-      ))}
-    </div>
+        ))}
+      </nav>
+
+      {/* Settings */}
+      <button
+        onClick={onSettings}
+        title="Settings"
+        className="titlebar-no-drag flex h-9 w-9 items-center justify-center rounded-lg text-white/30 transition-colors hover:bg-white/[0.08] hover:text-white/60"
+      >
+        <Settings2 className="h-[18px] w-[18px]" />
+      </button>
+    </aside>
   )
 }

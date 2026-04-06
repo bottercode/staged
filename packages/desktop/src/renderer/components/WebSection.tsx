@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState } from "react"
-import { Loader2, Sparkles } from "lucide-react"
+import { Loader2 } from "lucide-react"
+import logo from "../assets/logo.png"
 
 const BASE_URL = import.meta.env.DEV
   ? "http://localhost:3000"
@@ -81,9 +82,7 @@ export function WebSection({ path }: { path: string }) {
       {signingIn && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#0d0d0d]">
           <div className="flex flex-col items-center gap-5 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04]">
-              <Sparkles size={22} className="text-white/50" />
-            </div>
+            <img src={logo} alt="Staged" className="h-12 w-12 rounded-2xl" />
             <div className="space-y-1.5">
               <p className="text-[15px] font-semibold text-white/90">
                 Signing you in...

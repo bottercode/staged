@@ -91,15 +91,6 @@ app.on("web-contents-created", (_event, contents) => {
   if (contents.getType() !== "webview") return
 
   contents.on("will-navigate", (navEvent, url) => {
-    // Intercept webapp's Agent nav → switch to desktop agent section instead
-    if (url.includes("/workspace/agent")) {
-      navEvent.preventDefault()
-      BrowserWindow.getAllWindows().forEach((win) => {
-        if (!win.isDestroyed()) win.webContents.send("section:switch", "agent")
-      })
-      return
-    }
-
     const isOAuthUrl =
       url.includes("accounts.google.com") ||
       url.includes(`${BASE_URL}/api/auth/signin/google`) ||
@@ -114,18 +105,12 @@ app.on("web-contents-created", (_event, contents) => {
     })
   })
 
-  // SPA navigation (pushState) — will-navigate doesn't fire for these
+  // SPA navigation (pushState) — inform renderer of section changes
   contents.on("did-navigate-in-page", (_, url) => {
     if (url.includes("/workspace/agent")) {
       BrowserWindow.getAllWindows().forEach((win) => {
         if (!win.isDestroyed()) win.webContents.send("section:switch", "agent")
       })
-      // Navigate back so the webview doesn't sit on the agent page
-      if (contents.canGoBack()) {
-        contents.goBack()
-      } else {
-        void contents.loadURL(`${BASE_URL}/workspace`)
-      }
     }
   })
 

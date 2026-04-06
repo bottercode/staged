@@ -35,25 +35,24 @@ export function TRPCProvider({ children }: { children: React.ReactNode }) {
   )
 
   const [trpcClient] = useState(() => {
-    const wsClient = createWSClient({
-      url: getWsUrl(),
+    const httpLink = httpBatchLink({
+      url: `${getBaseUrl()}/api/trpc`,
+      transformer: superjson,
     })
 
-    const link = splitLink({
-      condition: (op) => op.type === "subscription",
-      true: wsLink({
-        client: wsClient,
-        transformer: superjson,
-      }),
-      false: httpBatchLink({
-        url: `${getBaseUrl()}/api/trpc`,
-        transformer: superjson,
-      }),
-    })
+    let link
+    try {
+      const wsClient = createWSClient({ url: getWsUrl() })
+      link = splitLink({
+        condition: (op) => op.type === "subscription",
+        true: wsLink({ client: wsClient, transformer: superjson }),
+        false: httpLink,
+      })
+    } catch {
+      link = httpLink
+    }
 
-    return trpc.createClient({
-      links: [link],
-    })
+    return trpc.createClient({ links: [link] })
   })
 
   return (

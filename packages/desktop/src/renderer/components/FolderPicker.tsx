@@ -1,4 +1,4 @@
-export function FolderPicker({ onSelect }: { onSelect: (path: string) => void }) {
+export function FolderPicker({ onSelect, onGoToWorkspace }: { onSelect: (path: string) => void; onGoToWorkspace?: () => void }) {
   const open = async () => {
     const folder = await window.api.openFolder()
     if (folder) onSelect(folder)
@@ -30,6 +30,7 @@ export function FolderPicker({ onSelect }: { onSelect: (path: string) => void })
           </svg>
           Browse folder
         </button>
+
       </div>
     </div>
   )

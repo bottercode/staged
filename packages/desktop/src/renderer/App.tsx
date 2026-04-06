@@ -1,14 +1,9 @@
-import { useState, useCallback, useEffect } from "react"
-import { Sparkles, Loader2, ArrowRight } from "lucide-react"
+import { useState, useCallback, useEffect, useRef } from "react"
+import { Loader2, ArrowRight, Sparkles } from "lucide-react"
+import logo from "./assets/logo.png"
 import type { Section } from "./types"
-import { NavRail } from "./components/NavRail"
-import { AgentSidebar } from "./components/sidebars/AgentSidebar"
 import { SettingsModal } from "./components/SettingsModal"
 import { AgentSection } from "./sections/AgentSection"
-import { ChatSection } from "./sections/ChatSection"
-import { TasksSection } from "./sections/TasksSection"
-import { DocsSection } from "./sections/DocsSection"
-import { PortalsSection } from "./sections/PortalsSection"
 
 export type AgentSession = {
   id: string
@@ -16,12 +11,24 @@ export type AgentSession = {
   history: unknown[]
 }
 
-let counter = 1
-function makeSession(): AgentSession {
-  return { id: `s-${Date.now()}-${counter++}`, name: `Chat ${counter - 1}`, history: [] }
-}
+const BASE_URL = import.meta.env.DEV
+  ? "http://localhost:3000"
+  : "https://staged-qfza.onrender.com"
 
-const WEB_SECTIONS: Section[] = ["chat", "tasks", "docs", "portals"]
+// Webapp sidebar icon rail width — matches webapp's w-12 (48px)
+const SIDEBAR_WIDTH = 48
+
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      webview: React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & {
+        src?: string
+        partition?: string
+        style?: React.CSSProperties
+      }
+    }
+  }
+}
 
 // ── Sign-in screen ────────────────────────────────────────
 
@@ -36,30 +43,19 @@ function SignInScreen({
 }) {
   return (
     <div className="flex h-screen flex-col items-center justify-center bg-[#0d0d0d] px-4">
-      {/* macOS traffic-light spacer */}
       <div className="titlebar-drag absolute inset-x-0 top-0 h-10" />
-
       <div className="flex w-full max-w-sm flex-col items-center gap-7 text-center">
-        {/* Icon */}
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/90">
-          <Sparkles size={22} className="text-black" />
-        </div>
-
-        {/* Text */}
+        <img src={logo} alt="Staged" className="h-16 w-16 rounded-2xl" />
         <div className="space-y-2">
           <h1 className="text-xl font-semibold text-white/90">Sign in to Staged</h1>
           <p className="text-[13px] text-white/40">
             Continue with Google to access your workspace.
           </p>
         </div>
-
-        {/* Button / waiting state */}
         {signingIn ? (
           <div className="flex flex-col items-center gap-3">
             <Loader2 size={18} className="animate-spin text-white/30" />
-            <p className="text-[13px] text-white/40">
-              Finish signing in with your browser…
-            </p>
+            <p className="text-[13px] text-white/40">Finish signing in with your browser…</p>
             <button
               onClick={onCancel}
               className="text-[12px] text-white/25 underline-offset-2 hover:text-white/40 hover:underline transition-colors"
@@ -97,21 +93,20 @@ function LoadingScreen() {
 export default function App() {
   const [authStatus, setAuthStatus] = useState<"checking" | "signed-in" | "signed-out">("checking")
   const [signingIn, setSigningIn] = useState(false)
-  const [section, setSection] = useState<Section>("agent")
+  const [section, setSection] = useState<Section>("chat")
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [webviewLoading, setWebviewLoading] = useState(true)
   const [cwd, setCwd] = useState<string | null>(null)
-  const [sessions, setSessions] = useState<AgentSession[]>(() => [makeSession()])
-  const [activeSessionId, setActiveSessionId] = useState<string>(() => sessions[0].id)
+  const [session] = useState<AgentSession>(() => ({ id: `s-${Date.now()}`, name: "Chat 1", history: [] }))
+  const [sessionHistory, setSessionHistory] = useState<unknown[]>([])
+  const webviewRef = useRef<HTMLElement>(null)
 
-  // Check auth on mount
   useEffect(() => {
     window.api.checkAuth().then(({ authenticated }) => {
       setAuthStatus(authenticated ? "signed-in" : "signed-out")
     })
   }, [])
 
-  // Listen for auth events
   useEffect(() => {
     const offStarted = window.api.onAuthStarted(() => setSigningIn(true))
     const offComplete = window.api.onAuthComplete(() => {
@@ -119,37 +114,60 @@ export default function App() {
       window.api.checkAuth().then(({ authenticated }) => {
         setAuthStatus(authenticated ? "signed-in" : "signed-out")
       })
+      // @ts-expect-error webview method
+      webviewRef.current?.reload()
     })
     return () => { offStarted(); offComplete() }
   }, [])
 
-  // Listen for section switch from webview (e.g. Agent clicked in webapp sidebar)
+  // Main process sends section:switch when webview navigates to /workspace/agent
   useEffect(() => {
     return window.api.onSectionSwitch((s) => setSection(s as Section))
   }, [])
 
-  const createSession = useCallback(() => {
-    const s = makeSession()
-    setSessions((prev) => [...prev, s])
-    setActiveSessionId(s.id)
+  // Also detect section changes from webview SPA navigation directly
+  useEffect(() => {
+    const el = webviewRef.current
+    if (!el) return
+
+    const onStart = () => setWebviewLoading(true)
+    const onStop = () => setWebviewLoading(false)
+
+    const onNavigateInPage = (e: Event) => {
+      const url = (e as CustomEvent & { url: string }).url
+      if (!url) return
+      if (url.includes("/workspace/agent")) setSection("agent")
+      else if (url.includes("/workspace/tasks")) setSection("tasks")
+      else if (url.includes("/workspace/docs")) setSection("docs")
+      else if (url.includes("/workspace/portals")) setSection("portals")
+      else if (url.includes("/workspace")) setSection("chat")
+    }
+
+    el.addEventListener("did-start-loading", onStart)
+    el.addEventListener("did-stop-loading", onStop)
+    el.addEventListener("did-fail-load", onStop)
+    el.addEventListener("did-navigate-in-page", onNavigateInPage)
+    el.addEventListener("did-navigate", onNavigateInPage)
+
+    return () => {
+      el.removeEventListener("did-start-loading", onStart)
+      el.removeEventListener("did-stop-loading", onStop)
+      el.removeEventListener("did-fail-load", onStop)
+      el.removeEventListener("did-navigate-in-page", onNavigateInPage)
+      el.removeEventListener("did-navigate", onNavigateInPage)
+    }
+  }, [authStatus])
+
+  const updateSessionHistory = useCallback((_id: string, history: unknown[]) => {
+    setSessionHistory(history)
   }, [])
 
-  const closeSession = useCallback((id: string) => {
-    setSessions((prev) => {
-      if (prev.length <= 1) return prev
-      const filtered = prev.filter((s) => s.id !== id)
-      if (id === activeSessionId) {
-        setActiveSessionId(filtered[filtered.length - 1].id)
-      }
-      return filtered
-    })
-  }, [activeSessionId])
-
-  const updateSessionHistory = useCallback((id: string, history: unknown[]) => {
-    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, history } : s)))
+  const goToWorkspace = useCallback(() => {
+    // @ts-expect-error webview method
+    webviewRef.current?.loadURL(`${BASE_URL}/workspace`)
+    setSection("chat")
   }, [])
 
-  // Auth gates
   if (authStatus === "checking") return <LoadingScreen />
   if (authStatus === "signed-out") {
     return (
@@ -161,78 +179,66 @@ export default function App() {
     )
   }
 
-  const activeSession = sessions.find((s) => s.id === activeSessionId) ?? sessions[0]
-  const isWebSection = WEB_SECTIONS.includes(section)
+  const activeSession = { ...session, history: sessionHistory }
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#0d0d0d] text-white">
-      {/* Agent: NavRail + native sidebar + local chat */}
-      {section === "agent" && (
-        <>
-          <NavRail
-            active={section}
-            onSelect={setSection}
-            onSettings={() => setSettingsOpen(true)}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Titlebar drag area */}
+        <div className="titlebar-drag h-10 shrink-0" />
+
+        {/* Content: webview always present, agent panel overlaid when in agent mode */}
+        <div className="relative flex-1 overflow-hidden">
+
+          {/* Persistent webapp webview */}
+          {/* @ts-expect-error webview is Electron-specific */}
+          <webview
+            ref={webviewRef}
+            src={`${BASE_URL}/workspace`}
+            partition="persist:webapp"
+            style={{ width: "100%", height: "100%", display: "flex" }}
           />
-          {sidebarCollapsed ? (
-            <aside className="flex w-8 shrink-0 flex-col items-center border-r border-white/[0.05] bg-[#0a0a0a]">
-              <div className="titlebar-drag h-10 shrink-0" />
-              <button
-                onClick={() => setSidebarCollapsed(false)}
-                className="mt-1 flex h-7 w-7 items-center justify-center rounded-md text-white/25 transition-colors hover:bg-white/[0.06] hover:text-white/50"
-                title="Expand sidebar"
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="9 18 15 12 9 6" />
-                </svg>
-              </button>
-            </aside>
-          ) : (
-            <aside className="flex w-56 shrink-0 flex-col border-r border-white/[0.05] bg-[#0a0a0a]">
-              <div className="titlebar-drag h-10 shrink-0" />
-              <div className="flex-1 overflow-y-auto">
-                <AgentSidebar
-                  cwd={cwd}
-                  sessions={sessions}
-                  activeSessionId={activeSessionId}
-                  onSelectSession={setActiveSessionId}
-                  onNewSession={createSession}
-                  onCloseSession={closeSession}
-                  onCollapse={() => setSidebarCollapsed(true)}
-                />
-              </div>
-            </aside>
+
+          {/* Initial load spinner */}
+          {webviewLoading && !signingIn && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0d0d0d]">
+              <Loader2 size={20} className="animate-spin text-white/20" />
+            </div>
           )}
-          <main className="flex flex-1 flex-col overflow-hidden">
-            <div className="titlebar-drag h-10 shrink-0 border-b border-white/[0.05]" />
-            <div className="flex-1 overflow-hidden">
+
+          {/* Auth waiting overlay */}
+          {signingIn && (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#0d0d0d]">
+              <div className="flex flex-col items-center gap-5 text-center">
+                <img src={logo} alt="Staged" className="h-12 w-12 rounded-2xl" />
+                <div className="space-y-1.5">
+                  <p className="text-[15px] font-semibold text-white/90">Signing you in...</p>
+                  <p className="text-[13px] text-white/40">Complete sign-in in the window that just opened.</p>
+                </div>
+                <Loader2 size={16} className="animate-spin text-white/20" />
+              </div>
+            </div>
+          )}
+
+          {/* Agent overlay — sits on top of webview's content area, to the right of the sidebar */}
+          {section === "agent" && (
+            <div
+              className="absolute bottom-0 top-0 right-0 bg-[#0d0d0d]"
+              style={{ left: SIDEBAR_WIDTH }}
+            >
               <AgentSection
                 cwd={cwd}
                 setCwd={setCwd}
                 session={activeSession}
                 onHistoryUpdate={updateSessionHistory}
+                onGoToWorkspace={goToWorkspace}
               />
             </div>
-          </main>
-        </>
-      )}
-
-      {/* Web sections: webview fills the full window, webapp sidebar handles nav */}
-      {isWebSection && (
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <div className="titlebar-drag h-10 shrink-0" />
-          <div className="flex-1 overflow-hidden">
-            {section === "chat" && <ChatSection />}
-            {section === "tasks" && <TasksSection />}
-            {section === "docs" && <DocsSection />}
-            {section === "portals" && <PortalsSection />}
-          </div>
+          )}
         </div>
-      )}
+      </div>
 
-      {settingsOpen && (
-        <SettingsModal onClose={() => setSettingsOpen(false)} />
-      )}
+      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
     </div>
   )
 }
