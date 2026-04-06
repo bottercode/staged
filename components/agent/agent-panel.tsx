@@ -661,11 +661,18 @@ function TaskSelector({
 const RELEASE_BASE =
   "https://github.com/bottercode/staged/releases/latest/download"
 
+function isMac(): boolean {
+  if (typeof window === "undefined") return false
+  return (
+    navigator.userAgent.includes("Mac") && !navigator.userAgent.includes("Win")
+  )
+}
+
 function getDownloadUrl(): { url: string; label: string } {
   if (typeof window === "undefined")
     return {
-      url: `${RELEASE_BASE}/Staged-mac-arm64.dmg`,
-      label: "Download for macOS",
+      url: `${RELEASE_BASE}/Staged-win.exe`,
+      label: "Download for Windows",
     }
   const ua = navigator.userAgent
   if (ua.includes("Win"))
@@ -673,24 +680,14 @@ function getDownloadUrl(): { url: string; label: string } {
       url: `${RELEASE_BASE}/Staged-win.exe`,
       label: "Download for Windows",
     }
-  if (ua.includes("Linux"))
-    return {
-      url: `${RELEASE_BASE}/Staged-linux.AppImage`,
-      label: "Download for Linux",
-    }
-  // macOS — pick arch
-  const isArm =
-    (ua.includes("Mac") &&
-      (navigator as unknown as { userAgentData?: { platform?: string } })
-        .userAgentData?.platform === "macOS") ||
-    /Apple Silicon|arm64/.test(ua)
   return {
-    url: `${RELEASE_BASE}/${isArm ? "Staged-mac-arm64.dmg" : "Staged-mac-x64.dmg"}`,
-    label: "Download for macOS",
+    url: `${RELEASE_BASE}/Staged-linux.AppImage`,
+    label: "Download for Linux",
   }
 }
 
 function ConnectScreen() {
+  const mac = isMac()
   const { url, label } = getDownloadUrl()
 
   return (
@@ -712,16 +709,24 @@ function ConnectScreen() {
           </p>
         </div>
 
-        <a
-          href={url}
-          download
-          className="inline-flex w-full items-center justify-center gap-2 rounded-lg border bg-foreground px-4 py-2.5 text-sm font-medium text-background transition-opacity hover:opacity-90"
-        >
-          {label}
-          <ArrowRight className="h-4 w-4" />
-        </a>
+        {mac ? (
+          <div className="w-full rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+            macOS app coming soon
+          </div>
+        ) : (
+          <a
+            href={url}
+            download
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border bg-foreground px-4 py-2.5 text-sm font-medium text-background transition-opacity hover:opacity-90"
+          >
+            {label}
+            <ArrowRight className="h-4 w-4" />
+          </a>
+        )}
 
-        <p className="text-xs text-muted-foreground">macOS · Windows · Linux</p>
+        <p className="text-xs text-muted-foreground">
+          Windows · Linux · macOS coming soon
+        </p>
       </div>
     </div>
   )
