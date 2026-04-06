@@ -1,26 +1,36 @@
-import { useAgentStore } from "../store/agentStore"
+import type { AgentSession } from "../App"
 import { FolderPicker } from "../components/FolderPicker"
 import { ChatPanel } from "../components/ChatPanel"
 
-export function AgentSection() {
-  const { cwd, setCwd, sessions, activeSessionId, updateSessionHistory } =
-    useAgentStore()
-
-  const activeSession = sessions.find((s) => s.id === activeSessionId)
-
+export function AgentSection({
+  cwd,
+  setCwd,
+  session,
+  onHistoryUpdate,
+}: {
+  cwd: string | null
+  setCwd: (path: string | null) => void
+  session: AgentSession
+  onHistoryUpdate: (id: string, history: unknown[]) => void
+}) {
   if (!cwd) {
     return <FolderPicker onSelect={setCwd} />
   }
 
-  if (!activeSession) return null
+  const handleSwitchRepo = async () => {
+    const folder = await window.api.openFolder()
+    if (folder) setCwd(folder)
+  }
 
   return (
     <ChatPanel
-      key={activeSession.id}
+      key={session.id}
       cwd={cwd}
-      sessionId={activeSession.id}
-      history={activeSession.history}
-      onHistoryUpdate={(h) => updateSessionHistory(activeSession.id, h)}
+      sessionId={session.id}
+      history={session.history}
+      onHistoryUpdate={(h) => onHistoryUpdate(session.id, h)}
+      onDisconnect={() => setCwd(null)}
+      onSwitchRepo={() => void handleSwitchRepo()}
     />
   )
 }

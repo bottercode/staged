@@ -174,9 +174,17 @@ export async function* runAgent(
     if (signal?.aborted) {
       yield { type: "done", finalText: "" }
     } else {
+      const raw = err instanceof Error ? err.message : String(err)
+      const isApiKeyError =
+        raw.toLowerCase().includes("api key") ||
+        raw.toLowerCase().includes("api_key") ||
+        raw.toLowerCase().includes("authentication") ||
+        raw.toLowerCase().includes("unauthorized")
       yield {
         type: "error",
-        message: err instanceof Error ? err.message : String(err),
+        message: isApiKeyError
+          ? `${raw}\n\nOpen Settings (bottom-left gear icon) → add your provider API key.`
+          : raw,
       }
     }
   }

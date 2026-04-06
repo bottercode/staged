@@ -11,6 +11,9 @@ export default defineConfig({
   },
   renderer: {
     root: resolve("src/renderer"),
+    resolve: {
+      dedupe: ["react", "react-dom"],
+    },
     build: {
       rollupOptions: {
         input: resolve("src/renderer/index.html"),

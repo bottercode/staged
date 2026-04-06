@@ -1,21 +1,21 @@
 import {
+  MessageCircle,
+  SquareKanban,
+  BookOpen,
+  Building2,
   Sparkles,
-  MessageSquare,
-  CheckSquare,
-  FileText,
-  Globe,
-  Settings,
+  Settings2,
 } from "lucide-react"
 import type { Section } from "../types"
 
 type NavItem = { id: Section; icon: React.ReactNode; label: string }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: "agent",   icon: <Sparkles size={18} />,       label: "Agent" },
-  { id: "chat",    icon: <MessageSquare size={18} />,   label: "Chat" },
-  { id: "tasks",   icon: <CheckSquare size={18} />,     label: "Tasks" },
-  { id: "docs",    icon: <FileText size={18} />,        label: "Docs" },
-  { id: "portals", icon: <Globe size={18} />,           label: "Portals" },
+  { id: "chat",    icon: <MessageCircle className="h-[18px] w-[18px]" />, label: "Chat" },
+  { id: "tasks",   icon: <SquareKanban  className="h-[18px] w-[18px]" />, label: "Tasks" },
+  { id: "docs",    icon: <BookOpen      className="h-[18px] w-[18px]" />, label: "Docs" },
+  { id: "portals", icon: <Building2     className="h-[18px] w-[18px]" />, label: "Client Portals" },
+  { id: "agent",   icon: <Sparkles      className="h-[18px] w-[18px]" />, label: "AI Agent" },
 ]
 
 export function NavRail({
@@ -30,18 +30,23 @@ export function NavRail({
   const isMac = window.api.platform === "darwin"
 
   return (
-    <aside className="flex w-14 shrink-0 flex-col items-center border-r border-white/[0.05] bg-[#0a0a0a] py-2">
+    <aside className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-white/[0.05] bg-[#0a0a0a] py-3">
       {/* macOS traffic-light spacer */}
       <div
-        className="titlebar-drag mb-1 flex w-full items-center justify-center"
-        style={{ height: isMac ? 40 : 28 }}
+        className="titlebar-drag flex w-full items-center justify-center"
+        style={{ height: isMac ? 28 : 0 }}
+      />
+
+      {/* Workspace / brand button */}
+      <button
+        title="Staged"
+        className="mb-1 flex h-8 w-8 items-center justify-center rounded-lg bg-white/90 text-xs font-bold text-black transition-opacity hover:opacity-90 titlebar-no-drag"
       >
-        {!isMac && (
-          <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-white/[0.06]">
-            <Sparkles size={12} className="text-white/50" />
-          </div>
-        )}
-      </div>
+        S
+      </button>
+
+      {/* Divider */}
+      <div className="mb-1 h-px w-6 bg-white/[0.08]" />
 
       {/* Nav icons */}
       <nav className="flex flex-1 flex-col items-center gap-1">
@@ -50,16 +55,13 @@ export function NavRail({
             key={item.id}
             onClick={() => onSelect(item.id)}
             title={item.label}
-            className={`titlebar-no-drag relative flex h-10 w-10 items-center justify-center rounded-xl transition-colors ${
+            className={`titlebar-no-drag flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
               active === item.id
-                ? "bg-white/10 text-white"
-                : "text-white/30 hover:bg-white/[0.06] hover:text-white/60"
+                ? "bg-white/90 text-black"
+                : "text-white/40 hover:bg-white/[0.08] hover:text-white/80"
             }`}
           >
             {item.icon}
-            {active === item.id && (
-              <span className="absolute left-0 h-5 w-0.5 rounded-r bg-white/50" />
-            )}
           </button>
         ))}
       </nav>
@@ -67,10 +69,10 @@ export function NavRail({
       {/* Settings */}
       <button
         onClick={onSettings}
-        title="Settings"
-        className="titlebar-no-drag flex h-10 w-10 items-center justify-center rounded-xl text-white/25 transition-colors hover:bg-white/[0.06] hover:text-white/50"
+        title="Agent Settings"
+        className="titlebar-no-drag flex h-9 w-9 items-center justify-center rounded-lg text-white/30 transition-colors hover:bg-white/[0.08] hover:text-white/60"
       >
-        <Settings size={15} />
+        <Settings2 className="h-[18px] w-[18px]" />
       </button>
     </aside>
   )

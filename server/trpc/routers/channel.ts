@@ -1,7 +1,12 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { router, publicProcedure } from "../trpc"
-import { channels, channelMembers, users, workspaceMembers } from "../../db/schema"
+import {
+  channels,
+  channelMembers,
+  users,
+  workspaceMembers,
+} from "../../db/schema"
 import { eq, and, count } from "drizzle-orm"
 
 export const channelRouter = router({
@@ -69,7 +74,10 @@ export const channelRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       if (!ctx.userId) {
-        throw new TRPCError({ code: "UNAUTHORIZED", message: "Authentication required" })
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Authentication required",
+        })
       }
 
       const [channel] = await ctx.db
@@ -128,7 +136,7 @@ export const channelRouter = router({
     .input(z.object({ channelId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       return ctx.db
-        .select({
+        .selectDistinct({
           id: users.id,
           name: users.name,
           email: users.email,

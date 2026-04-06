@@ -1,8 +1,14 @@
 import { ipcMain, dialog, app, BrowserWindow } from "electron"
 import { join } from "path"
 import fs from "fs/promises"
+import { exec } from "child_process"
+import { promisify } from "util"
 import { runAgent, type AgentJob } from "./agent"
 import { MODEL_OPTIONS, type ProviderKeys } from "./models"
+import { shell } from "electron"
+import { BASE_URL, checkSession, openBrowserSignIn } from "./auth"
+
+const execAsync = promisify(exec)
 
 // ── Settings persistence ──────────────────────────────────────────────────────
 
@@ -65,6 +71,29 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle("models:list", () => MODEL_OPTIONS)
 
+  // Auth: check if user has a valid session
+  ipcMain.handle("auth:check", async () => {
+    const authenticated = await checkSession()
+    return { authenticated }
+  })
+
+  // Auth: open the system browser for sign-in
+  ipcMain.handle("auth:sign-in", () => {
+    openBrowserSignIn()
+    return { ok: true }
+  })
+
+  // Git branch for current directory
+  ipcMain.handle("agent:git-branch", async (_e, cwd: string) => {
+    try {
+      const { stdout } = await execAsync("git branch --show-current", { cwd })
+      const branch = stdout.trim()
+      return { branch: branch || null, isGit: true }
+    } catch {
+      return { branch: null, isGit: false }
+    }
+  })
+
   // Run agent job — streams events back via webContents.send
   ipcMain.handle(
     "agent:run",
@@ -76,6 +105,7 @@ export function registerIpcHandlers(): void {
         cwd: string
         permissionMode: "edit" | "plan"
         history: AgentJob["history"]
+        modelId?: string
       }
     ) => {
       const settings = await loadSettings()
@@ -83,7 +113,7 @@ export function registerIpcHandlers(): void {
       const job: AgentJob = {
         jobId: payload.jobId,
         prompt: payload.prompt,
-        modelId: settings.modelId,
+        modelId: payload.modelId || settings.modelId,
         cwd: payload.cwd,
         permissionMode: payload.permissionMode,
         providerApiKeys: settings.providerApiKeys,

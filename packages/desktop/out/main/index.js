@@ -1,6 +1,8 @@
-import { app, ipcMain, BrowserWindow, dialog, shell } from "electron";
+import { app, session, shell, ipcMain, BrowserWindow, dialog } from "electron";
 import path, { join } from "path";
 import fs from "fs/promises";
+import { spawn, exec } from "child_process";
+import { promisify } from "util";
 import { tool, streamText, stepCountIs } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -8,7 +10,6 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createMistral } from "@ai-sdk/mistral";
 import { createXai } from "@ai-sdk/xai";
 import { z } from "zod";
-import { spawn } from "child_process";
 import __cjs_mod__ from "node:module";
 const __filename = import.meta.filename;
 const __dirname = import.meta.dirname;
@@ -354,13 +355,46 @@ async function* runAgent(job, signal) {
     if (signal?.aborted) {
       yield { type: "done", finalText: "" };
     } else {
+      const raw = err instanceof Error ? err.message : String(err);
+      const isApiKeyError = raw.toLowerCase().includes("api key") || raw.toLowerCase().includes("api_key") || raw.toLowerCase().includes("authentication") || raw.toLowerCase().includes("unauthorized");
       yield {
         type: "error",
-        message: err instanceof Error ? err.message : String(err)
+        message: isApiKeyError ? `${raw}
+
+Open Settings (bottom-left gear icon) → add your provider API key.` : raw
       };
     }
   }
 }
+const BASE_URL = app.isPackaged ? "https://staged-qfza.onrender.com" : "http://localhost:3000";
+async function checkSession() {
+  try {
+    const sess = session.fromPartition("persist:webapp");
+    const res = await sess.fetch(`${BASE_URL}/api/auth/session`);
+    const data = await res.json();
+    return !!data?.user;
+  } catch {
+    return false;
+  }
+}
+async function exchangeDesktopCode(code) {
+  try {
+    const sess = session.fromPartition("persist:webapp");
+    const res = await sess.fetch(
+      `${BASE_URL}/api/auth/desktop-exchange?code=${encodeURIComponent(code)}`
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+function openBrowserSignIn() {
+  const callbackUrl = encodeURIComponent("/api/auth/desktop-callback");
+  shell.openExternal(
+    `${BASE_URL}/auth/signin?callbackUrl=${callbackUrl}`
+  );
+}
+const execAsync = promisify(exec);
 const SETTINGS_PATH = join(app.getPath("userData"), "settings.json");
 const DEFAULT_SETTINGS = {
   modelId: "anthropic:claude-sonnet-4-5-20251001",
@@ -395,6 +429,23 @@ function registerIpcHandlers() {
     return true;
   });
   ipcMain.handle("models:list", () => MODEL_OPTIONS);
+  ipcMain.handle("auth:check", async () => {
+    const authenticated = await checkSession();
+    return { authenticated };
+  });
+  ipcMain.handle("auth:sign-in", () => {
+    openBrowserSignIn();
+    return { ok: true };
+  });
+  ipcMain.handle("agent:git-branch", async (_e, cwd) => {
+    try {
+      const { stdout } = await execAsync("git branch --show-current", { cwd });
+      const branch = stdout.trim();
+      return { branch: branch || null, isGit: true };
+    } catch {
+      return { branch: null, isGit: false };
+    }
+  });
   ipcMain.handle(
     "agent:run",
     async (event, payload) => {
@@ -402,7 +453,7 @@ function registerIpcHandlers() {
       const job = {
         jobId: payload.jobId,
         prompt: payload.prompt,
-        modelId: settings.modelId,
+        modelId: payload.modelId || settings.modelId,
         cwd: payload.cwd,
         permissionMode: payload.permissionMode,
         providerApiKeys: settings.providerApiKeys,
@@ -440,6 +491,13 @@ function registerIpcHandlers() {
     return true;
   });
 }
+if (process.defaultApp) {
+  app.setAsDefaultProtocolClient("staged", process.execPath, [
+    join(__dirname, "../../..")
+  ]);
+} else {
+  app.setAsDefaultProtocolClient("staged");
+}
 function createWindow() {
   const win = new BrowserWindow({
     width: 1100,
@@ -449,16 +507,15 @@ function createWindow() {
     backgroundColor: "#0a0a0a",
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
+      preload: join(__dirname, "../preload/index.mjs"),
       sandbox: false,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      webviewTag: true
     },
     show: false
   });
-  win.once("ready-to-show", () => {
-    win.show();
-  });
+  win.once("ready-to-show", () => win.show());
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
@@ -470,6 +527,73 @@ function createWindow() {
   }
   return win;
 }
+async function handleDeepLink(url) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "staged:") return;
+    const code = parsed.searchParams.get("code");
+    if (!code) return;
+    await exchangeDesktopCode(code);
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (!win.isDestroyed()) win.webContents.send("auth:complete");
+    });
+  } catch {
+  }
+}
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  void handleDeepLink(url);
+});
+app.on("second-instance", (_event, argv) => {
+  const url = argv.find((arg) => arg.startsWith("staged://"));
+  if (url) void handleDeepLink(url);
+  const win = BrowserWindow.getAllWindows()[0];
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  }
+});
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) app.quit();
+app.on("web-contents-created", (_event, contents) => {
+  if (contents.getType() !== "webview") return;
+  contents.on("will-navigate", (navEvent, url) => {
+    if (url.includes("/workspace/agent")) {
+      navEvent.preventDefault();
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) win.webContents.send("section:switch", "agent");
+      });
+      return;
+    }
+    const isOAuthUrl = url.includes("accounts.google.com") || url.includes(`${BASE_URL}/api/auth/signin/google`) || url.includes("/api/auth/signin/google");
+    if (!isOAuthUrl) return;
+    navEvent.preventDefault();
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (!win.isDestroyed()) win.webContents.send("auth:started");
+    });
+  });
+  contents.on("did-navigate-in-page", (_, url) => {
+    if (url.includes("/workspace/agent")) {
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) win.webContents.send("section:switch", "agent");
+      });
+      if (contents.canGoBack()) {
+        contents.goBack();
+      } else {
+        void contents.loadURL(`${BASE_URL}/workspace`);
+      }
+    }
+  });
+  contents.on("did-navigate", (_, url) => {
+    if (url.startsWith(`${BASE_URL}/auth/signin`)) {
+      const { openBrowserSignIn: openBrowserSignIn2 } = require2("./auth");
+      openBrowserSignIn2();
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) win.webContents.send("auth:started");
+      });
+    }
+  });
+});
 app.whenReady().then(() => {
   registerIpcHandlers();
   createWindow();
