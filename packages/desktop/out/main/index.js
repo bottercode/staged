@@ -491,6 +491,34 @@ function registerIpcHandlers() {
     return true;
   });
 }
+const CURRENT_VERSION = app.getVersion();
+const RELEASE_BASE = "https://github.com/bottercode/staged/releases/latest/download";
+function getDownloadUrl() {
+  const p = process.platform;
+  if (p === "win32") return `${RELEASE_BASE}/Staged-win.exe`;
+  if (p === "linux") return `${RELEASE_BASE}/Staged-linux.AppImage`;
+  const arch = process.arch === "arm64" ? "arm64" : "x64";
+  return `${RELEASE_BASE}/Staged-mac-${arch}.dmg`;
+}
+async function checkForUpdate() {
+  try {
+    const res = await fetch("https://api.github.com/repos/bottercode/staged/releases/latest", {
+      headers: { "User-Agent": "staged-desktop" }
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const latest = data.tag_name?.replace(/^v/, "");
+    if (!latest || latest === CURRENT_VERSION) return null;
+    const toNum = (v) => v.split(".").map(Number);
+    const [lMaj, lMin, lPat] = toNum(latest);
+    const [cMaj, cMin, cPat] = toNum(CURRENT_VERSION);
+    const isNewer = lMaj > cMaj || lMaj === cMaj && lMin > cMin || lMaj === cMaj && lMin === cMin && lPat > cPat;
+    if (!isNewer) return null;
+    return { version: latest, downloadUrl: getDownloadUrl() };
+  } catch {
+    return null;
+  }
+}
 if (process.defaultApp) {
   app.setAsDefaultProtocolClient("staged", process.execPath, [
     join(__dirname, "../../..")
@@ -584,7 +612,19 @@ app.on("web-contents-created", (_event, contents) => {
 });
 app.whenReady().then(() => {
   registerIpcHandlers();
-  createWindow();
+  ipcMain.handle("update:check", async () => checkForUpdate());
+  ipcMain.handle("update:download", (_e, url) => {
+    shell.openExternal(url);
+    return { ok: true };
+  });
+  const win = createWindow();
+  setTimeout(() => {
+    void checkForUpdate().then((update) => {
+      if (update && !win.isDestroyed()) {
+        win.webContents.send("update:available", update);
+      }
+    });
+  }, 5e3);
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

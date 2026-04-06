@@ -661,34 +661,20 @@ function TaskSelector({
 const RELEASE_BASE =
   "https://github.com/bottercode/staged/releases/latest/download"
 
-function isMac(): boolean {
-  if (typeof window === "undefined") return false
-  return (
-    navigator.userAgent.includes("Mac") && !navigator.userAgent.includes("Win")
-  )
-}
-
-function getDownloadUrl(): { url: string; label: string } {
-  if (typeof window === "undefined")
-    return {
-      url: `${RELEASE_BASE}/Staged-win.exe`,
-      label: "Download for Windows",
-    }
-  const ua = navigator.userAgent
-  if (ua.includes("Win"))
-    return {
-      url: `${RELEASE_BASE}/Staged-win.exe`,
-      label: "Download for Windows",
-    }
-  return {
-    url: `${RELEASE_BASE}/Staged-linux.AppImage`,
-    label: "Download for Linux",
-  }
-}
-
 function ConnectScreen() {
-  const mac = isMac()
-  const { url, label } = getDownloadUrl()
+  const [platform, setPlatform] = useState<"mac" | "win" | "linux" | null>(null)
+
+  useEffect(() => {
+    const ua = navigator.userAgent
+    if (ua.includes("Mac") && !ua.includes("Win")) setPlatform("mac")
+    else if (ua.includes("Win")) setPlatform("win")
+    else setPlatform("linux")
+  }, [])
+
+  const downloadUrl =
+    platform === "win"
+      ? `${RELEASE_BASE}/Staged-win.exe`
+      : `${RELEASE_BASE}/Staged-linux.AppImage`
 
   return (
     <div className="flex h-full w-full flex-col items-center justify-center bg-background px-8">
@@ -709,17 +695,17 @@ function ConnectScreen() {
           </p>
         </div>
 
-        {mac ? (
+        {platform === "mac" ? (
           <div className="w-full rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
             macOS app coming soon
           </div>
         ) : (
           <a
-            href={url}
+            href={platform ? downloadUrl : "#"}
             download
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg border bg-foreground px-4 py-2.5 text-sm font-medium text-background transition-opacity hover:opacity-90"
           >
-            {label}
+            {platform === "win" ? "Download for Windows" : "Download for Linux"}
             <ArrowRight className="h-4 w-4" />
           </a>
         )}

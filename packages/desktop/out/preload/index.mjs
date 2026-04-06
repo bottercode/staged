@@ -29,6 +29,12 @@ const api = {
     return () => ipcRenderer.off("section:switch", handler);
   },
   checkAuth: () => ipcRenderer.invoke("auth:check"),
-  signIn: () => ipcRenderer.invoke("auth:sign-in")
+  signIn: () => ipcRenderer.invoke("auth:sign-in"),
+  onUpdateAvailable: (cb) => {
+    const handler = (_, update) => cb(update);
+    ipcRenderer.on("update:available", handler);
+    return () => ipcRenderer.off("update:available", handler);
+  },
+  downloadUpdate: (url) => ipcRenderer.invoke("update:download", url)
 };
 contextBridge.exposeInMainWorld("api", api);

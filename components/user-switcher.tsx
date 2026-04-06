@@ -1,23 +1,29 @@
 "use client"
 
-import { ChevronDown } from "lucide-react"
+import { ChevronDown, Sun, Moon, Monitor } from "lucide-react"
 import { signOut, useSession } from "next-auth/react"
+import { useTheme } from "next-themes"
 import { useCurrentUser } from "@/lib/user-context"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu"
-import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 
 export function UserSwitcher() {
   const { data: session } = useSession()
   const { currentUser } = useCurrentUser()
+  const { theme, setTheme } = useTheme()
 
   const profileName = currentUser?.name || session?.user?.name
-  const profileAvatar = currentUser?.avatarUrl || session?.user?.image || undefined
+  const profileAvatar =
+    currentUser?.avatarUrl || session?.user?.image || undefined
   const profileFallback = (profileName || "U")[0]
 
   if (!profileName) return null
@@ -43,9 +49,45 @@ export function UserSwitcher() {
           </div>
         )}
         <DropdownMenuSeparator />
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger className="cursor-pointer">
+            {theme === "dark" ? (
+              <Moon className="mr-2 h-3.5 w-3.5" />
+            ) : theme === "light" ? (
+              <Sun className="mr-2 h-3.5 w-3.5" />
+            ) : (
+              <Monitor className="mr-2 h-3.5 w-3.5" />
+            )}
+            Theme
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            <DropdownMenuItem
+              onClick={() => setTheme("light")}
+              className="cursor-pointer"
+            >
+              <Sun className="mr-2 h-3.5 w-3.5" />
+              Light
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => setTheme("dark")}
+              className="cursor-pointer"
+            >
+              <Moon className="mr-2 h-3.5 w-3.5" />
+              Dark
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => setTheme("system")}
+              className="cursor-pointer"
+            >
+              <Monitor className="mr-2 h-3.5 w-3.5" />
+              System
+            </DropdownMenuItem>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={() => signOut({ callbackUrl: "/auth/signin" })}
-          className="text-destructive focus:text-destructive"
+          className="cursor-pointer text-destructive focus:text-destructive"
         >
           Sign out
         </DropdownMenuItem>

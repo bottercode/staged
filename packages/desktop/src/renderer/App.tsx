@@ -1,8 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react"
-import { Loader2, ArrowRight, Sparkles } from "lucide-react"
+import { Loader2, ArrowRight } from "lucide-react"
 import logo from "./assets/logo.png"
 import type { Section } from "./types"
-import { SettingsModal } from "./components/SettingsModal"
 import { AgentSection } from "./sections/AgentSection"
 
 export type AgentSession = {
@@ -94,7 +93,6 @@ export default function App() {
   const [authStatus, setAuthStatus] = useState<"checking" | "signed-in" | "signed-out">("checking")
   const [signingIn, setSigningIn] = useState(false)
   const [section, setSection] = useState<Section>("chat")
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [webviewLoading, setWebviewLoading] = useState(true)
   const [cwd, setCwd] = useState<string | null>(null)
   const [session] = useState<AgentSession>(() => ({ id: `s-${Date.now()}`, name: "Chat 1", history: [] }))
@@ -121,7 +119,6 @@ export default function App() {
     return () => { offStarted(); offComplete() }
   }, [])
 
-  // Main process sends section:switch when webview navigates to /workspace/agent
   useEffect(() => {
     return window.api.onSectionSwitch((s) => setSection(s as Section))
   }, [])
@@ -130,7 +127,7 @@ export default function App() {
     return window.api.onUpdateAvailable((u) => setUpdate(u))
   }, [])
 
-  // Also detect section changes from webview SPA navigation directly
+  // Detect section changes from webview SPA navigation
   useEffect(() => {
     const el = webviewRef.current
     if (!el) return
@@ -265,8 +262,6 @@ export default function App() {
           )}
         </div>
       </div>
-
-      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
     </div>
   )
 }
