@@ -1,7 +1,42 @@
-import { app, BrowserWindow, shell } from "electron"
+import { app, BrowserWindow, shell, ipcMain } from "electron"
 import { join } from "path"
 import { registerIpcHandlers } from "./ipc"
 import { BASE_URL, exchangeDesktopCode } from "./auth"
+
+const CURRENT_VERSION = app.getVersion()
+const RELEASE_BASE = "https://github.com/bottercode/staged/releases/latest/download"
+
+function getDownloadUrl(): string {
+  const p = process.platform
+  if (p === "win32") return `${RELEASE_BASE}/Staged-win.exe`
+  if (p === "linux") return `${RELEASE_BASE}/Staged-linux.AppImage`
+  const arch = process.arch === "arm64" ? "arm64" : "x64"
+  return `${RELEASE_BASE}/Staged-mac-${arch}.dmg`
+}
+
+async function checkForUpdate(): Promise<{ version: string; downloadUrl: string } | null> {
+  try {
+    const res = await fetch("https://api.github.com/repos/bottercode/staged/releases/latest", {
+      headers: { "User-Agent": "staged-desktop" },
+    })
+    if (!res.ok) return null
+    const data = await res.json() as { tag_name?: string }
+    const latest = data.tag_name?.replace(/^v/, "")
+    if (!latest || latest === CURRENT_VERSION) return null
+    // Simple semver: compare dot-separated numbers
+    const toNum = (v: string) => v.split(".").map(Number)
+    const [lMaj, lMin, lPat] = toNum(latest)
+    const [cMaj, cMin, cPat] = toNum(CURRENT_VERSION)
+    const isNewer =
+      lMaj > cMaj ||
+      (lMaj === cMaj && lMin > cMin) ||
+      (lMaj === cMaj && lMin === cMin && lPat > cPat)
+    if (!isNewer) return null
+    return { version: latest, downloadUrl: getDownloadUrl() }
+  } catch {
+    return null
+  }
+}
 
 // Register staged:// as a deep-link protocol handler
 if (process.defaultApp) {
@@ -128,7 +163,24 @@ app.on("web-contents-created", (_event, contents) => {
 
 app.whenReady().then(() => {
   registerIpcHandlers()
-  createWindow()
+
+  ipcMain.handle("update:check", async () => checkForUpdate())
+
+  ipcMain.handle("update:download", (_e, url: string) => {
+    shell.openExternal(url)
+    return { ok: true }
+  })
+
+  const win = createWindow()
+
+  // Check for update 5s after launch so it doesn't block startup
+  setTimeout(() => {
+    void checkForUpdate().then((update) => {
+      if (update && !win.isDestroyed()) {
+        win.webContents.send("update:available", update)
+      }
+    })
+  }, 5000)
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

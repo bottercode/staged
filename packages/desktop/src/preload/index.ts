@@ -25,6 +25,8 @@ export type IpcApi = {
   onSectionSwitch: (cb: (section: string) => void) => () => void
   checkAuth: () => Promise<{ authenticated: boolean }>
   signIn: () => Promise<{ ok: boolean }>
+  onUpdateAvailable: (cb: (update: { version: string; downloadUrl: string }) => void) => () => void
+  downloadUpdate: (url: string) => Promise<{ ok: boolean }>
 }
 
 const api: IpcApi = {
@@ -68,6 +70,14 @@ const api: IpcApi = {
 
   checkAuth: () => ipcRenderer.invoke("auth:check"),
   signIn: () => ipcRenderer.invoke("auth:sign-in"),
+
+  onUpdateAvailable: (cb) => {
+    const handler = (_: Electron.IpcRendererEvent, update: { version: string; downloadUrl: string }) => cb(update)
+    ipcRenderer.on("update:available", handler)
+    return () => ipcRenderer.off("update:available", handler)
+  },
+
+  downloadUpdate: (url) => ipcRenderer.invoke("update:download", url),
 }
 
 contextBridge.exposeInMainWorld("api", api)

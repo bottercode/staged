@@ -99,6 +99,7 @@ export default function App() {
   const [cwd, setCwd] = useState<string | null>(null)
   const [session] = useState<AgentSession>(() => ({ id: `s-${Date.now()}`, name: "Chat 1", history: [] }))
   const [sessionHistory, setSessionHistory] = useState<unknown[]>([])
+  const [update, setUpdate] = useState<{ version: string; downloadUrl: string } | null>(null)
   const webviewRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
@@ -123,6 +124,10 @@ export default function App() {
   // Main process sends section:switch when webview navigates to /workspace/agent
   useEffect(() => {
     return window.api.onSectionSwitch((s) => setSection(s as Section))
+  }, [])
+
+  useEffect(() => {
+    return window.api.onUpdateAvailable((u) => setUpdate(u))
   }, [])
 
   // Also detect section changes from webview SPA navigation directly
@@ -186,6 +191,29 @@ export default function App() {
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Titlebar drag area */}
         <div className="titlebar-drag h-10 shrink-0" />
+
+        {/* Update banner */}
+        {update && (
+          <div className="flex shrink-0 items-center justify-between gap-3 bg-white/[0.06] px-4 py-2 text-[12px]">
+            <span className="text-white/60">
+              Update <span className="text-white/90 font-medium">v{update.version}</span> is available
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => void window.api.downloadUpdate(update.downloadUrl)}
+                className="rounded bg-white/90 px-3 py-1 font-medium text-black transition-opacity hover:opacity-80"
+              >
+                Download
+              </button>
+              <button
+                onClick={() => setUpdate(null)}
+                className="text-white/30 hover:text-white/60"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Content: webview always present, agent panel overlaid when in agent mode */}
         <div className="relative flex-1 overflow-hidden">
