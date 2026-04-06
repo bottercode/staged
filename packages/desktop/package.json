@@ -37,10 +37,19 @@
     "typescript": "^5.0.0",
     "vite": "^5.4.0"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bottercode/staged.git"
+  },
   "build": {
     "appId": "com.bottercode.staged",
     "productName": "Staged",
     "copyright": "Copyright © 2025 Bottercode",
+    "publish": {
+      "provider": "github",
+      "owner": "bottercode",
+      "repo": "staged"
+    },
     "directories": {
       "output": "release",
       "buildResources": "resources"
