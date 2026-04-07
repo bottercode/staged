@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import {
   CalendarDays,
   X,
@@ -10,6 +10,9 @@ import {
   Tag,
   Trash2,
   UserRound,
+  Paperclip,
+  FileText,
+  Download,
 } from "lucide-react"
 import { trpc } from "@/lib/trpc/client"
 import { useCurrentUser } from "@/lib/user-context"
@@ -36,7 +39,7 @@ import {
 } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
-import type { TaskData } from "./task-card"
+import type { Attachment, TaskData } from "./task-card"
 
 const PRIORITY_META: Record<
   "urgent" | "high" | "medium" | "low",
@@ -45,22 +48,26 @@ const PRIORITY_META: Record<
   urgent: {
     label: "P1",
     iconColor: "text-rose-500",
-    chipColor: "bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300",
+    chipColor:
+      "bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300",
   },
   high: {
     label: "P2",
     iconColor: "text-orange-500",
-    chipColor: "bg-orange-50 text-orange-600 dark:bg-orange-950/30 dark:text-orange-300",
+    chipColor:
+      "bg-orange-50 text-orange-600 dark:bg-orange-950/30 dark:text-orange-300",
   },
   medium: {
     label: "P3",
     iconColor: "text-amber-500",
-    chipColor: "bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-300",
+    chipColor:
+      "bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-300",
   },
   low: {
     label: "P4",
     iconColor: "text-pink-500",
-    chipColor: "bg-pink-50 text-pink-600 dark:bg-pink-950/30 dark:text-pink-300",
+    chipColor:
+      "bg-pink-50 text-pink-600 dark:bg-pink-950/30 dark:text-pink-300",
   },
 }
 
@@ -96,8 +103,9 @@ export function TaskDetailDialog({
   onOpenChange: (open: boolean) => void
   task: TaskData
 }) {
-  const initialDueDate =
-    task.dueDate ? new Date(task.dueDate).toISOString().slice(0, 10) : ""
+  const initialDueDate = task.dueDate
+    ? new Date(task.dueDate).toISOString().slice(0, 10)
+    : ""
   const [title, setTitle] = useState(task.title)
   const [description, setDescription] = useState(task.description ?? "")
   const [priority, setPriority] = useState(
@@ -121,6 +129,13 @@ export function TaskDetailDialog({
   const [assigneeOpen, setAssigneeOpen] = useState(false)
   const [labelOpen, setLabelOpen] = useState(false)
   const [labels, setLabels] = useState<string[]>(task.labels ?? [])
+  const [attachments, setAttachments] = useState<Attachment[]>(
+    task.attachments ?? []
+  )
+  const [uploadingFiles, setUploadingFiles] = useState<
+    Array<{ name: string; uploading: boolean; error: boolean }>
+  >([])
+  const attachFileRef = useRef<HTMLInputElement>(null)
   const { currentUser, users } = useCurrentUser()
   const utils = trpc.useUtils()
 
@@ -159,9 +174,7 @@ export function TaskDetailDialog({
     const q = memberQuery.trim().toLowerCase()
     if (!q) return users
     return users.filter((user) =>
-      [user.name, user.email].some((value) =>
-        value?.toLowerCase().includes(q)
-      )
+      [user.name, user.email].some((value) => value?.toLowerCase().includes(q))
     )
   }, [memberQuery, users])
 
@@ -191,6 +204,47 @@ export function TaskDetailDialog({
     setLabels((prev) => prev.filter((item) => item !== label))
   }
 
+  const handleAttachFiles = async (files: FileList | null) => {
+    if (!files) return
+    const newFiles = Array.from(files)
+    setUploadingFiles((prev) => [
+      ...prev,
+      ...newFiles.map((f) => ({ name: f.name, uploading: true, error: false })),
+    ])
+    for (const file of newFiles) {
+      try {
+        const form = new FormData()
+        form.append("file", file)
+        const res = await fetch("/api/upload", { method: "POST", body: form })
+        const data = (await res.json()) as Attachment
+        const next = [...attachments, data]
+        setAttachments(next)
+        updateTask.mutate({ id: task.id, attachments: next })
+        setUploadingFiles((prev) =>
+          prev.filter((u) => !(u.name === file.name && u.uploading))
+        )
+      } catch {
+        setUploadingFiles((prev) =>
+          prev.map((u) =>
+            u.name === file.name ? { ...u, uploading: false, error: true } : u
+          )
+        )
+      }
+    }
+  }
+
+  const removeAttachment = (url: string) => {
+    const next = attachments.filter((a) => a.url !== url)
+    setAttachments(next)
+    updateTask.mutate({ id: task.id, attachments: next })
+  }
+
+  const formatBytes = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -205,7 +259,7 @@ export function TaskDetailDialog({
         <div className="flex-1 overflow-y-auto">
           <div className="w-full px-5 pt-6 pb-6 sm:px-7 lg:px-8">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+              <div className="flex items-center gap-2 text-xs tracking-wide text-muted-foreground uppercase">
                 <span className="h-2 w-2 rounded-full bg-red-500" />
                 <span>{task.columnName ?? "Task"}</span>
               </div>
@@ -247,29 +301,39 @@ export function TaskDetailDialog({
               <Popover open={priorityOpen} onOpenChange={setPriorityOpen}>
                 <PopoverTrigger asChild>
                   <button className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted">
-                    <Flag className={cn("h-4 w-4", currentPriority.iconColor)} />
+                    <Flag
+                      className={cn("h-4 w-4", currentPriority.iconColor)}
+                    />
                     {currentPriority.label}
                   </button>
                 </PopoverTrigger>
-                <PopoverContent side="bottom" align="start" className="w-auto p-1">
+                <PopoverContent
+                  side="bottom"
+                  align="start"
+                  className="w-auto p-1"
+                >
                   <div className="flex items-center gap-1">
-                    {(["urgent", "high", "medium", "low"] as const).map((value) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => {
-                          setPriority(value)
-                          setPriorityOpen(false)
-                        }}
-                        className={cn(
-                          "rounded-md px-2 py-1 text-xs font-semibold",
-                          PRIORITY_META[value].chipColor,
-                          priority === value ? "ring-1 ring-foreground/20" : ""
-                        )}
-                      >
-                        {PRIORITY_META[value].label}
-                      </button>
-                    ))}
+                    {(["urgent", "high", "medium", "low"] as const).map(
+                      (value) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => {
+                            setPriority(value)
+                            setPriorityOpen(false)
+                          }}
+                          className={cn(
+                            "rounded-md px-2 py-1 text-xs font-semibold",
+                            PRIORITY_META[value].chipColor,
+                            priority === value
+                              ? "ring-1 ring-foreground/20"
+                              : ""
+                          )}
+                        >
+                          {PRIORITY_META[value].label}
+                        </button>
+                      )
+                    )}
                   </div>
                 </PopoverContent>
               </Popover>
@@ -283,7 +347,11 @@ export function TaskDetailDialog({
                       : "No due date"}
                   </button>
                 </PopoverTrigger>
-                <PopoverContent side="bottom" align="start" className="w-64 p-3">
+                <PopoverContent
+                  side="bottom"
+                  align="start"
+                  className="w-64 p-3"
+                >
                   <Input
                     type="date"
                     value={dueDate}
@@ -352,10 +420,16 @@ export function TaskDetailDialog({
                     className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted"
                   >
                     <Tag className="h-4 w-4" />
-                    {labels.length > 0 ? `${labels.length} labels` : "Add label"}
+                    {labels.length > 0
+                      ? `${labels.length} labels`
+                      : "Add label"}
                   </button>
                 </PopoverTrigger>
-                <PopoverContent side="bottom" align="start" className="w-72 p-2">
+                <PopoverContent
+                  side="bottom"
+                  align="start"
+                  className="w-72 p-2"
+                >
                   <Input
                     value={labelDraft}
                     onChange={(e) => setLabelDraft(e.target.value)}
@@ -404,7 +478,11 @@ export function TaskDetailDialog({
                     {selectedAssignee?.name ?? "No assignees"}
                   </button>
                 </PopoverTrigger>
-                <PopoverContent side="bottom" align="start" className="w-72 p-2">
+                <PopoverContent
+                  side="bottom"
+                  align="start"
+                  className="w-72 p-2"
+                >
                   <Input
                     value={memberQuery}
                     onChange={(e) => setMemberQuery(e.target.value)}
@@ -482,6 +560,96 @@ export function TaskDetailDialog({
             <Separator className="my-5" />
 
             <div>
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                  Attachments ({attachments.length})
+                </p>
+                <button
+                  type="button"
+                  onClick={() => attachFileRef.current?.click()}
+                  className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+                >
+                  <Paperclip className="h-3.5 w-3.5" />
+                  Add file
+                </button>
+                <input
+                  ref={attachFileRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => handleAttachFiles(e.target.files)}
+                />
+              </div>
+              {attachments.length === 0 && uploadingFiles.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No attachments yet.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {attachments.map((att) => {
+                    const isImage = att.contentType.startsWith("image/")
+                    const src = att.url
+                    return (
+                      <div
+                        key={att.url}
+                        className="flex items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2"
+                      >
+                        {isImage ? (
+                          <img
+                            src={src}
+                            alt={att.name}
+                            className="h-10 w-10 flex-shrink-0 rounded object-cover"
+                          />
+                        ) : (
+                          <FileText className="h-8 w-8 flex-shrink-0 text-muted-foreground" />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">
+                            {att.name}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {formatBytes(att.size)}
+                          </p>
+                        </div>
+                        <a
+                          href={src}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          <Download className="h-4 w-4" />
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => removeAttachment(att.url)}
+                          className="text-muted-foreground hover:text-destructive"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )
+                  })}
+                  {uploadingFiles.map((u, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2 opacity-60"
+                    >
+                      <FileText className="h-8 w-8 flex-shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{u.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {u.error ? "Upload failed" : "Uploading…"}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <Separator className="my-5" />
+
+            <div>
               <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
                 Comments ({comments.data?.length ?? 0})
               </p>
@@ -501,19 +669,23 @@ export function TaskDetailDialog({
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex min-w-0 items-start gap-2">
                           <Avatar className="h-7 w-7">
-                            <AvatarImage src={comment.userAvatarUrl ?? undefined} />
+                            <AvatarImage
+                              src={comment.userAvatarUrl ?? undefined}
+                            />
                             <AvatarFallback className="text-[10px]">
                               {fallback}
                             </AvatarFallback>
                           </Avatar>
                           <div className="min-w-0">
                             <div className="flex items-center gap-2 text-sm">
-                              <span className="font-medium">{comment.userName}</span>
+                              <span className="font-medium">
+                                {comment.userName}
+                              </span>
                               <span className="text-xs text-muted-foreground">
                                 {formatRelativeTime(comment.createdAt)}
                               </span>
                             </div>
-                            <p className="mt-1 whitespace-pre-wrap text-sm">
+                            <p className="mt-1 text-sm whitespace-pre-wrap">
                               {comment.content}
                             </p>
                           </div>
@@ -522,7 +694,9 @@ export function TaskDetailDialog({
                           <button
                             type="button"
                             className="text-xs text-destructive hover:underline"
-                            onClick={() => deleteComment.mutate({ id: comment.id })}
+                            onClick={() =>
+                              deleteComment.mutate({ id: comment.id })
+                            }
                           >
                             Delete
                           </button>
@@ -590,7 +764,9 @@ export function TaskDetailDialog({
                   description: description.trim() || null,
                   priority,
                   assigneeId: assigneeId || null,
-                  dueDate: dueDate ? new Date(`${dueDate}T00:00:00`).toISOString() : null,
+                  dueDate: dueDate
+                    ? new Date(`${dueDate}T00:00:00`).toISOString()
+                    : null,
                   labels,
                 } as const
                 updateTask.mutate(payload, {

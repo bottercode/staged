@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { useParams } from "next/navigation"
 import { skipToken } from "@tanstack/react-query"
-import { Hash, Users, Settings } from "lucide-react"
+import { Hash, Lock, Users, Settings } from "lucide-react"
 import { trpc } from "@/lib/trpc/client"
 import { MESSAGE_POLL_QUERY_OPTIONS } from "@/lib/polling"
 import { useCurrentUser } from "@/lib/user-context"
@@ -33,6 +33,7 @@ export default function ChannelPage() {
   const [settingsTab, setSettingsTab] = useState<"about" | "members">("about")
   const [draftName, setDraftName] = useState("")
   const [draftDescription, setDraftDescription] = useState("")
+  const [draftIsPrivate, setDraftIsPrivate] = useState(false)
   const [preferredWorkspaceId, setPreferredWorkspaceId] = useState<
     string | undefined
   >(undefined)
@@ -59,7 +60,32 @@ export default function ChannelPage() {
   )
 
   const sendMessage = trpc.message.send.useMutation({
-    onSuccess: () => {
+    onMutate: async (vars) => {
+      await utils.message.list.cancel({ channelId })
+      const prev = utils.message.list.getData({ channelId })
+      const optimistic: Message = {
+        id: `optimistic-${Date.now()}`,
+        content: vars.content,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        userId: currentUser?.id ?? "",
+        userName: currentUser?.name ?? "You",
+        userAvatar: currentUser?.avatarUrl ?? null,
+        parentId: null,
+        replyCount: 0,
+        replyPreviewUsers: [],
+        attachments: vars.attachments ?? [],
+      }
+      utils.message.list.setData({ channelId }, (old) => [
+        ...(old ?? []),
+        optimistic,
+      ])
+      return { prev }
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) utils.message.list.setData({ channelId }, ctx.prev)
+    },
+    onSettled: () => {
       utils.message.list.invalidate({ channelId })
     },
   })
@@ -92,7 +118,11 @@ export default function ChannelPage() {
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Channel header */}
         <div className="flex h-12 items-center gap-2 border-b px-4">
-          <Hash className="h-4 w-4 text-muted-foreground" />
+          {channel?.isPrivate ? (
+            <Lock className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <Hash className="h-4 w-4 text-muted-foreground" />
+          )}
           <span className="text-sm font-semibold">{channel?.name}</span>
           {channel?.description && (
             <>
@@ -129,6 +159,7 @@ export default function ChannelPage() {
                   onClick={() => {
                     setDraftName(channel?.name ?? "")
                     setDraftDescription(channel?.description ?? "")
+                    setDraftIsPrivate(channel?.isPrivate ?? false)
                     setSettingsTab("about")
                     setShowChannelSettings(true)
                   }}
@@ -159,12 +190,13 @@ export default function ChannelPage() {
           mentionUsers={(users ?? [])
             .filter((u) => u.id !== currentUser?.id)
             .map((u) => ({ id: u.id, name: u.name }))}
-          onSend={(content) => {
+          onSend={(content, attachments) => {
             if (!currentUser) return
             sendMessage.mutate({
               channelId,
               userId: currentUser.id,
               content,
+              attachments,
             })
           }}
         />
@@ -243,6 +275,34 @@ export default function ChannelPage() {
                     placeholder="Channel description"
                   />
                 </div>
+                {channel?.slug !== "general" && (
+                  <button
+                    type="button"
+                    onClick={() => setDraftIsPrivate((p) => !p)}
+                    className={`flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors ${
+                      draftIsPrivate
+                        ? "border-primary/40 bg-primary/5"
+                        : "hover:bg-muted/50"
+                    }`}
+                  >
+                    <div
+                      className={`rounded-md p-1.5 ${draftIsPrivate ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}
+                    >
+                      <Lock className="h-4 w-4" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">Private channel</p>
+                      <p className="text-xs text-muted-foreground">
+                        {draftIsPrivate
+                          ? "Only invited members can see this channel"
+                          : "Anyone in the workspace can join"}
+                      </p>
+                    </div>
+                    <div
+                      className={`h-4 w-4 rounded-full border-2 transition-colors ${draftIsPrivate ? "border-primary bg-primary" : "border-muted-foreground"}`}
+                    />
+                  </button>
+                )}
               </div>
             ) : (
               <div className="max-h-72 space-y-2 overflow-auto">
@@ -298,6 +358,7 @@ export default function ChannelPage() {
                   id: channelId,
                   name: draftName.trim(),
                   description: draftDescription.trim() || undefined,
+                  isPrivate: draftIsPrivate,
                 })
               }}
             >

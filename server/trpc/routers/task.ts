@@ -24,13 +24,20 @@ async function ensureTaskCommentsTable(db: {
   `)
 }
 
+let tasksMigrated = false
 async function ensureTaskLabelsColumn(db: {
   execute: (query: any) => Promise<unknown>
 }) {
+  if (tasksMigrated) return
   await db.execute(sql`
     alter table tasks
     add column if not exists labels text[] not null default '{}'::text[]
   `)
+  await db.execute(sql`
+    alter table tasks
+    add column if not exists attachments jsonb not null default '[]'::jsonb
+  `)
+  tasksMigrated = true
 }
 
 export const taskRouter = router({
@@ -48,6 +55,16 @@ export const taskRouter = router({
         labels: z.array(z.string().min(1).max(40)).optional(),
         createdById: z.string().uuid(),
         channelMessageId: z.string().uuid().optional(),
+        attachments: z
+          .array(
+            z.object({
+              url: z.string(),
+              name: z.string(),
+              size: z.number(),
+              contentType: z.string(),
+            })
+          )
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -70,6 +87,7 @@ export const taskRouter = router({
           priority: input.priority,
           dueDate: input.dueDate ? new Date(input.dueDate) : undefined,
           labels: input.labels ?? [],
+          attachments: input.attachments ?? [],
           position: (maxPos?.max ?? -1) + 1,
           createdById: input.createdById,
           channelMessageId: input.channelMessageId,
@@ -89,6 +107,16 @@ export const taskRouter = router({
         priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
         dueDate: z.string().datetime().nullable().optional(),
         labels: z.array(z.string().min(1).max(40)).optional(),
+        attachments: z
+          .array(
+            z.object({
+              url: z.string(),
+              name: z.string(),
+              size: z.number(),
+              contentType: z.string(),
+            })
+          )
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -105,6 +133,8 @@ export const taskRouter = router({
       if (updates.dueDate !== undefined)
         values.dueDate = updates.dueDate ? new Date(updates.dueDate) : null
       if (updates.labels !== undefined) values.labels = updates.labels
+      if (updates.attachments !== undefined)
+        values.attachments = updates.attachments
 
       const [task] = await ctx.db
         .update(tasks)

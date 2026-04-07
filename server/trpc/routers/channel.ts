@@ -7,16 +7,50 @@ import {
   users,
   workspaceMembers,
 } from "../../db/schema"
-import { eq, and, count } from "drizzle-orm"
+import { eq, and, count, or, inArray } from "drizzle-orm"
 
 export const channelRouter = router({
   list: publicProcedure
     .input(z.object({ workspaceId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      const userId = ctx.userId
+      if (!userId) {
+        return ctx.db
+          .select()
+          .from(channels)
+          .where(
+            and(
+              eq(channels.workspaceId, input.workspaceId),
+              eq(channels.isPrivate, false)
+            )
+          )
+          .orderBy(channels.name)
+      }
+
+      // Get IDs of private channels the user is a member of
+      const memberRows = await ctx.db
+        .select({ channelId: channelMembers.channelId })
+        .from(channelMembers)
+        .where(eq(channelMembers.userId, userId))
+
+      const memberChannelIds = memberRows
+        .map((r) => r.channelId)
+        .filter((id): id is string => id !== null)
+
       return ctx.db
         .select()
         .from(channels)
-        .where(eq(channels.workspaceId, input.workspaceId))
+        .where(
+          and(
+            eq(channels.workspaceId, input.workspaceId),
+            or(
+              eq(channels.isPrivate, false),
+              memberChannelIds.length > 0
+                ? inArray(channels.id, memberChannelIds)
+                : undefined
+            )
+          )
+        )
         .orderBy(channels.name)
     }),
 
@@ -70,6 +104,7 @@ export const channelRouter = router({
         id: z.string().uuid(),
         name: z.string().min(1).max(80),
         description: z.string().max(200).optional(),
+        isPrivate: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -84,6 +119,7 @@ export const channelRouter = router({
         .select({
           id: channels.id,
           workspaceId: channels.workspaceId,
+          slug: channels.slug,
         })
         .from(channels)
         .where(eq(channels.id, input.id))
@@ -119,12 +155,18 @@ export const channelRouter = router({
         .replace(/-+/g, "-")
         .replace(/^-|-$/g, "")
 
+      const isPrivateUpdate =
+        input.isPrivate !== undefined && channel.slug !== "general"
+          ? { isPrivate: input.isPrivate }
+          : {}
+
       const [updated] = await ctx.db
         .update(channels)
         .set({
           name: normalizedName,
           slug: slug || "channel",
           description: input.description?.trim() || null,
+          ...isPrivateUpdate,
         })
         .where(eq(channels.id, input.id))
         .returning()

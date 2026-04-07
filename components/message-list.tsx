@@ -10,22 +10,89 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { MoreHorizontal, SquareKanban, Trash2 } from "lucide-react"
+import {
+  Download,
+  FileText,
+  MoreHorizontal,
+  SquareKanban,
+  Trash2,
+} from "lucide-react"
+
+export type Attachment = {
+  url: string
+  name: string
+  size: number
+  contentType: string
+}
 
 export type Message = {
   id: string
   content: string
   createdAt: Date
+  updatedAt: Date
   userId: string
   userName: string
   userAvatar: string | null
   parentId: string | null
   replyCount: number
-  replyPreviewUsers?: Array<{
+  attachments: Attachment[]
+  replyPreviewUsers: Array<{
     id: string
     name: string
     avatarUrl: string | null
   }>
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function AttachmentPreview({ attachment }: { attachment: Attachment }) {
+  const isImage = attachment.contentType.startsWith("image/")
+  const isVideo = attachment.contentType.startsWith("video/")
+  const src = attachment.url
+
+  if (isImage) {
+    return (
+      <a href={src} target="_blank" rel="noopener noreferrer" className="block">
+        <img
+          src={src}
+          alt={attachment.name}
+          className="max-h-64 max-w-xs rounded-lg border object-cover"
+        />
+      </a>
+    )
+  }
+
+  if (isVideo) {
+    return (
+      <video
+        src={src}
+        controls
+        className="max-h-64 max-w-xs rounded-lg border"
+      />
+    )
+  }
+
+  return (
+    <a
+      href={src}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex w-64 items-center gap-3 rounded-lg border bg-muted/40 px-3 py-2 transition-colors hover:bg-muted/70"
+    >
+      <FileText className="h-8 w-8 flex-shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">{attachment.name}</p>
+        <p className="text-xs text-muted-foreground">
+          {formatBytes(attachment.size)}
+        </p>
+      </div>
+      <Download className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+    </a>
+  )
 }
 
 function formatTime(date: Date) {
@@ -130,7 +197,8 @@ export function MessageList({
     if (segments.length === 0) return content
 
     return segments.map((segment, idx) => {
-      if (segment.type === "text") return <span key={`t-${idx}`}>{segment.value}</span>
+      if (segment.type === "text")
+        return <span key={`t-${idx}`}>{segment.value}</span>
       return (
         <button
           key={`m-${idx}`}
@@ -158,13 +226,44 @@ export function MessageList({
 
   const messagesWithDate = messages.map((msg, index) => {
     const msgDate = formatDate(msg.createdAt)
-    const prevDate = index > 0 ? formatDate(messages[index - 1].createdAt) : null
+    const prevDate =
+      index > 0 ? formatDate(messages[index - 1].createdAt) : null
     return { msg, msgDate, showDate: msgDate !== prevDate }
   })
 
   return (
     <div className="flex flex-1 flex-col overflow-y-auto px-4 py-2">
+      {messagesWithDate.length === 0 && (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+          <div className="text-4xl">👋</div>
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-foreground">
+              No messages yet
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Be the first to say something!
+            </p>
+          </div>
+        </div>
+      )}
       {messagesWithDate.map(({ msg, msgDate, showDate }) => {
+        if (msg.content === "joined the workspace 👋") {
+          return (
+            <div
+              key={msg.id}
+              className="my-1 flex items-center gap-2 text-xs text-muted-foreground"
+            >
+              <div className="h-px flex-1 bg-border" />
+              <span>
+                <span className="font-medium text-foreground">
+                  {msg.userName}
+                </span>{" "}
+                joined the workspace 👋
+              </span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+          )
+        }
 
         return (
           <div key={msg.id}>
@@ -192,9 +291,18 @@ export function MessageList({
                     {formatTime(msg.createdAt)}
                   </span>
                 </div>
-                <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                  {renderContentWithMentions(msg.content)}
-                </p>
+                {msg.content && (
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                    {renderContentWithMentions(msg.content)}
+                  </p>
+                )}
+                {(msg.attachments ?? []).length > 0 && (
+                  <div className="mt-1.5 flex flex-col gap-2">
+                    {(msg.attachments ?? []).map((att, i) => (
+                      <AttachmentPreview key={i} attachment={att} />
+                    ))}
+                  </div>
+                )}
                 {showThreadCount && msg.replyCount > 0 && (
                   <button
                     type="button"
@@ -206,7 +314,10 @@ export function MessageList({
                   >
                     <div className="flex items-center -space-x-2">
                       {(msg.replyPreviewUsers ?? []).slice(0, 4).map((user) => (
-                        <Avatar key={user.id} className="h-5 w-5 border border-background">
+                        <Avatar
+                          key={user.id}
+                          className="h-5 w-5 border border-background"
+                        >
                           <AvatarImage src={user.avatarUrl ?? undefined} />
                           <AvatarFallback className="text-[9px]">
                             {user.name?.[0]?.toUpperCase() ?? "U"}
@@ -214,7 +325,10 @@ export function MessageList({
                         </Avatar>
                       ))}
                     </div>
-                    <span>{msg.replyCount} {msg.replyCount === 1 ? "reply" : "replies"}</span>
+                    <span>
+                      {msg.replyCount}{" "}
+                      {msg.replyCount === 1 ? "reply" : "replies"}
+                    </span>
                     <span className="hidden text-muted-foreground group-hover/thread:inline">
                       View thread
                     </span>
@@ -226,7 +340,8 @@ export function MessageList({
               </div>
 
               {/* Action menu */}
-              {(onCreateTask || (onDeleteMessage && currentUserId === msg.userId)) && (
+              {(onCreateTask ||
+                (onDeleteMessage && currentUserId === msg.userId)) && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button

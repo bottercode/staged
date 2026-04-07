@@ -115,7 +115,7 @@ export const dmRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      return ctx.db
+      const rows = await ctx.db
         .select({
           id: messages.id,
           content: messages.content,
@@ -126,11 +126,20 @@ export const dmRouter = router({
           userId: messages.userId,
           userName: users.name,
           userAvatar: users.avatarUrl,
+          attachments: messages.attachments,
         })
         .from(messages)
         .innerJoin(users, eq(messages.userId, users.id))
         .where(eq(messages.dmRoomId, input.roomId))
         .orderBy(asc(messages.createdAt))
         .limit(input.limit)
+      return rows.map((r) => ({
+        ...r,
+        replyPreviewUsers: [] as Array<{
+          id: string
+          name: string
+          avatarUrl: string | null
+        }>,
+      }))
     }),
 })

@@ -1,11 +1,20 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { router, publicProcedure } from "../trpc"
-import {
-  messages,
-  users,
-} from "../../db/schema"
+import { messages, users } from "../../db/schema"
 import { eq, and, isNull, desc, asc, sql, count, inArray } from "drizzle-orm"
+
+let messagesMigrated = false
+async function ensureMessageAttachmentsColumn(db: {
+  execute: (query: ReturnType<typeof sql>) => Promise<unknown>
+}) {
+  if (messagesMigrated) return
+  await db.execute(sql`
+    alter table messages
+    add column if not exists attachments jsonb not null default '[]'::jsonb
+  `)
+  messagesMigrated = true
+}
 
 export const messageRouter = router({
   // Get message counts per channel and DM room for unread tracking
@@ -66,6 +75,7 @@ export const messageRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
+      await ensureMessageAttachmentsColumn(ctx.db)
       const rows = await ctx.db
         .select({
           id: messages.id,
@@ -77,6 +87,7 @@ export const messageRouter = router({
           userId: messages.userId,
           userName: users.name,
           userAvatar: users.avatarUrl,
+          attachments: messages.attachments,
         })
         .from(messages)
         .innerJoin(users, eq(messages.userId, users.id))
@@ -135,11 +146,22 @@ export const messageRouter = router({
         channelId: z.string().uuid().optional(),
         dmRoomId: z.string().uuid().optional(),
         userId: z.string().uuid(),
-        content: z.string().min(1),
+        content: z.string(),
         parentId: z.string().uuid().optional(),
+        attachments: z
+          .array(
+            z.object({
+              url: z.string(),
+              name: z.string(),
+              size: z.number(),
+              contentType: z.string(),
+            })
+          )
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await ensureMessageAttachmentsColumn(ctx.db)
       const [message] = await ctx.db
         .insert(messages)
         .values({
@@ -148,6 +170,7 @@ export const messageRouter = router({
           userId: input.userId,
           content: input.content,
           parentId: input.parentId,
+          attachments: input.attachments ?? [],
         })
         .returning()
 
@@ -165,6 +188,7 @@ export const messageRouter = router({
   thread: publicProcedure
     .input(z.object({ parentId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      await ensureMessageAttachmentsColumn(ctx.db)
       // Get parent message
       const [parent] = await ctx.db
         .select({
@@ -177,6 +201,7 @@ export const messageRouter = router({
           userId: messages.userId,
           userName: users.name,
           userAvatar: users.avatarUrl,
+          attachments: messages.attachments,
         })
         .from(messages)
         .innerJoin(users, eq(messages.userId, users.id))
@@ -194,13 +219,33 @@ export const messageRouter = router({
           userId: messages.userId,
           userName: users.name,
           userAvatar: users.avatarUrl,
+          attachments: messages.attachments,
         })
         .from(messages)
         .innerJoin(users, eq(messages.userId, users.id))
         .where(eq(messages.parentId, input.parentId))
         .orderBy(asc(messages.createdAt))
 
-      return { parent, replies }
+      return {
+        parent: parent
+          ? {
+              ...parent,
+              replyPreviewUsers: [] as Array<{
+                id: string
+                name: string
+                avatarUrl: string | null
+              }>,
+            }
+          : undefined,
+        replies: replies.map((r) => ({
+          ...r,
+          replyPreviewUsers: [] as Array<{
+            id: string
+            name: string
+            avatarUrl: string | null
+          }>,
+        })),
+      }
     }),
 
   delete: publicProcedure

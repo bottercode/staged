@@ -3,6 +3,20 @@ import { router, publicProcedure } from "../trpc"
 import { boards, boardColumns, tasks, users } from "../../db/schema"
 import { eq, asc, and, ne, sql } from "drizzle-orm"
 
+let boardMigrated = false
+async function ensureBoardTaskColumns(db: {
+  execute: (query: ReturnType<typeof sql>) => Promise<unknown>
+}) {
+  if (boardMigrated) return
+  await db.execute(
+    sql`alter table tasks add column if not exists labels text[] not null default '{}'::text[]`
+  )
+  await db.execute(
+    sql`alter table tasks add column if not exists attachments jsonb not null default '[]'::jsonb`
+  )
+  boardMigrated = true
+}
+
 export const boardRouter = router({
   list: publicProcedure
     .input(z.object({ workspaceId: z.string().uuid() }))
@@ -22,11 +36,7 @@ export const boardRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      await ctx.db.execute(sql`
-        alter table tasks
-        add column if not exists labels text[] not null default '{}'::text[]
-      `)
-
+      await ensureBoardTaskColumns(ctx.db)
       const [board] = await ctx.db
         .select()
         .from(boards)
@@ -60,6 +70,7 @@ export const boardRouter = router({
           createdById: tasks.createdById,
           channelMessageId: tasks.channelMessageId,
           labels: tasks.labels,
+          attachments: tasks.attachments,
           createdAt: tasks.createdAt,
           updatedAt: tasks.updatedAt,
           assigneeName: users.name,

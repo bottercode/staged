@@ -33,6 +33,7 @@
     "@trpc/react-query": "^11.16.0",
     "@trpc/server": "^11.16.0",
     "@types/ws": "^8.18.1",
+    "@vercel/blob": "^2.3.3",
     "ai": "^6.0.141",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

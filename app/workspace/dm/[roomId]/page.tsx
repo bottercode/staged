@@ -42,7 +42,32 @@ export default function DmPage() {
   )
 
   const sendMessage = trpc.message.send.useMutation({
-    onSuccess: () => {
+    onMutate: async (vars) => {
+      await utils.dm.messages.cancel({ roomId })
+      const prev = utils.dm.messages.getData({ roomId })
+      const optimistic: Message = {
+        id: `optimistic-${Date.now()}`,
+        content: vars.content,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        userId: currentUser?.id ?? "",
+        userName: currentUser?.name ?? "You",
+        userAvatar: currentUser?.avatarUrl ?? null,
+        parentId: null,
+        replyCount: 0,
+        replyPreviewUsers: [],
+        attachments: vars.attachments ?? [],
+      }
+      utils.dm.messages.setData({ roomId }, (old) => [
+        ...(old ?? []),
+        optimistic,
+      ])
+      return { prev }
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) utils.dm.messages.setData({ roomId }, ctx.prev)
+    },
+    onSettled: () => {
       utils.dm.messages.invalidate({ roomId })
     },
   })
@@ -88,12 +113,13 @@ export default function DmPage() {
         mentionUsers={(users ?? [])
           .filter((u) => u.id !== currentUser?.id)
           .map((u) => ({ id: u.id, name: u.name }))}
-        onSend={(content) => {
+        onSend={(content, attachments) => {
           if (!currentUser) return
           sendMessage.mutate({
             dmRoomId: roomId,
             userId: currentUser.id,
             content,
+            attachments,
           })
         }}
       />

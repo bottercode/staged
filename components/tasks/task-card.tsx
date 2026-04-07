@@ -13,6 +13,13 @@ import { trpc } from "@/lib/trpc/client"
 import { useCurrentUser } from "@/lib/user-context"
 import { cn } from "@/lib/utils"
 
+export type Attachment = {
+  url: string
+  name: string
+  size: number
+  contentType: string
+}
+
 export type TaskData = {
   id: string
   boardId: string
@@ -26,6 +33,7 @@ export type TaskData = {
   assigneeAvatar: string | null
   channelMessageId?: string | null
   labels?: string[]
+  attachments?: Attachment[]
   position: number
   createdById?: string
   createdAt?: Date
@@ -115,14 +123,14 @@ export function TaskCard({
     task.assigneeName?.trim().charAt(0).toUpperCase() || "U"
   const currentPriority =
     (task.priority as "urgent" | "high" | "medium" | "low") ?? "medium"
-  const dueValue = task.dueDate ? new Date(task.dueDate).toISOString().slice(0, 10) : ""
+  const dueValue = task.dueDate
+    ? new Date(task.dueDate).toISOString().slice(0, 10)
+    : ""
   const filteredMembers = useMemo(() => {
     const q = memberQuery.trim().toLowerCase()
     if (!q) return users
     return users.filter((user) =>
-      [user.name, user.email].some((value) =>
-        value?.toLowerCase().includes(q)
-      )
+      [user.name, user.email].some((value) => value?.toLowerCase().includes(q))
     )
   }, [memberQuery, users])
 
@@ -155,20 +163,24 @@ export function TaskCard({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-1">
-              {(["urgent", "high", "medium", "low"] as const).map((priority) => (
-                <button
-                  key={priority}
-                  type="button"
-                  onClick={() => setPriority(priority)}
-                  className={cn(
-                    "rounded-md px-2 py-1 text-xs font-semibold transition-colors",
-                    PRIORITY_META[priority].chip,
-                    currentPriority === priority ? "ring-1 ring-foreground/20" : ""
-                  )}
-                >
-                  {PRIORITY_META[priority].label}
-                </button>
-              ))}
+              {(["urgent", "high", "medium", "low"] as const).map(
+                (priority) => (
+                  <button
+                    key={priority}
+                    type="button"
+                    onClick={() => setPriority(priority)}
+                    className={cn(
+                      "rounded-md px-2 py-1 text-xs font-semibold transition-colors",
+                      PRIORITY_META[priority].chip,
+                      currentPriority === priority
+                        ? "ring-1 ring-foreground/20"
+                        : ""
+                    )}
+                  >
+                    {PRIORITY_META[priority].label}
+                  </button>
+                )
+              )}
             </div>
           </PopoverContent>
         </Popover>
@@ -311,12 +323,16 @@ export function TaskCard({
           <div className="ml-auto">
             <Avatar className="h-5 w-5">
               <AvatarImage src={task.assigneeAvatar ?? undefined} />
-              <AvatarFallback className="text-[9px]">{assigneeInitial}</AvatarFallback>
+              <AvatarFallback className="text-[9px]">
+                {assigneeInitial}
+              </AvatarFallback>
             </Avatar>
           </div>
         ) : null}
 
-        {task.channelMessageId && <Link2 className="h-3.5 w-3.5 text-primary" />}
+        {task.channelMessageId && (
+          <Link2 className="h-3.5 w-3.5 text-primary" />
+        )}
       </div>
     </div>
   )

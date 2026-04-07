@@ -2,6 +2,7 @@
 
 import {
   Hash,
+  Lock,
   Plus,
   SquareKanban,
   MessageCircle,
@@ -230,7 +231,7 @@ function NavRail({
               <Settings2 className="h-4.5 w-4.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="right">Agent Settings</TooltipContent>
+          <TooltipContent side="right">Workspace Settings</TooltipContent>
         </Tooltip>
       </div>
     </TooltipProvider>
@@ -246,7 +247,7 @@ function ChatSidebar({
   onCreateChannel,
   onCreateDm,
 }: {
-  channels: { id: string; name: string }[] | undefined
+  channels: { id: string; name: string; isPrivate: boolean }[] | undefined
   dmRooms:
     | {
         id: string
@@ -259,6 +260,7 @@ function ChatSidebar({
   onCreateChannel: () => void
   onCreateDm: () => void
 }) {
+  const utils = trpc.useUtils()
   return (
     <>
       <div className="flex h-12 items-center gap-2 border-b px-4">
@@ -287,6 +289,9 @@ function ChatSidebar({
             return (
               <button
                 key={channel.id}
+                onMouseEnter={() =>
+                  utils.message.list.prefetch({ channelId: channel.id })
+                }
                 onClick={() => router.push(`/workspace/channel/${channel.id}`)}
                 className={cn(
                   "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
@@ -297,7 +302,11 @@ function ChatSidebar({
                       : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50"
                 )}
               >
-                <Hash className="h-3.5 w-3.5 flex-shrink-0" />
+                {channel.isPrivate ? (
+                  <Lock className="h-3.5 w-3.5 flex-shrink-0" />
+                ) : (
+                  <Hash className="h-3.5 w-3.5 flex-shrink-0" />
+                )}
                 <span className="truncate">{channel.name}</span>
                 <UnreadBadge count={unread} />
               </button>
@@ -329,6 +338,9 @@ function ChatSidebar({
             return (
               <button
                 key={room.id}
+                onMouseEnter={() =>
+                  utils.dm.messages.prefetch({ roomId: room.id })
+                }
                 onClick={() => router.push(`/workspace/dm/${room.id}`)}
                 className={cn(
                   "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",

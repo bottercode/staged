@@ -48,7 +48,12 @@ export function ThreadPanel({
       {/* Header */}
       <div className="flex h-12 items-center justify-between border-b px-4">
         <span className="text-sm font-semibold">Thread</span>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7"
+          onClick={onClose}
+        >
           <X className="h-4 w-4" />
         </Button>
       </div>
@@ -67,18 +72,17 @@ export function ThreadPanel({
       {/* Input */}
       <MessageInput
         placeholder="Reply in thread..."
-        mentionUsers={
-          (users ?? [])
-            .filter((u) => u.id !== currentUser?.id)
-            .map((u) => ({ id: u.id, name: u.name }))
-        }
-        onSend={(content) => {
+        mentionUsers={(users ?? [])
+          .filter((u) => u.id !== currentUser?.id)
+          .map((u) => ({ id: u.id, name: u.name }))}
+        onSend={(content, attachments) => {
           if (!currentUser) return
           sendMessage.mutate({
             channelId,
             userId: currentUser.id,
             content,
             parentId,
+            attachments,
           })
         }}
       />

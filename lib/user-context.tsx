@@ -37,7 +37,6 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       ? allUsers.find((u) => u.email.trim().toLowerCase() === sessionEmail)
       : null) ??
     allUsers.find((u) => u.id === selectedId) ??
-    allUsers[0] ??
     null
   const sessionName = session?.user?.name?.trim() || null
   const sessionAvatar = session?.user?.image?.trim() || null
@@ -56,7 +55,12 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <UserContext.Provider
-      value={{ currentUser: hydratedCurrentUser, users: allUsers, setCurrentUser, isReady }}
+      value={{
+        currentUser: hydratedCurrentUser,
+        users: allUsers,
+        setCurrentUser,
+        isReady,
+      }}
     >
       {children}
     </UserContext.Provider>

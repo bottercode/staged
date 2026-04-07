@@ -240,6 +240,12 @@ export const messages = pgTable("messages", {
   content: text("content").notNull(),
   parentId: uuid("parent_id"),
   replyCount: integer("reply_count").default(0).notNull(),
+  attachments: jsonb("attachments")
+    .$type<
+      Array<{ url: string; name: string; size: number; contentType: string }>
+    >()
+    .notNull()
+    .default([]),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 })
@@ -380,6 +386,12 @@ export const tasks = pgTable("tasks", {
     .array()
     .notNull()
     .default(sql`'{}'::text[]`),
+  attachments: jsonb("attachments")
+    .$type<
+      Array<{ url: string; name: string; size: number; contentType: string }>
+    >()
+    .notNull()
+    .default([]),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 })

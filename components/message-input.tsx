@@ -10,13 +10,16 @@ import {
   Italic,
   Underline,
   Strikethrough,
-  List,
-  ListOrdered,
-  Quote,
-  Code2,
   Slash,
+  Paperclip,
+  X,
+  FileText,
 } from "lucide-react"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import EmojiPicker from "emoji-picker-react"
 import { cn } from "@/lib/utils"
 
@@ -45,14 +48,20 @@ function htmlToMarkdown(html: string) {
     if (tag === "s" || tag === "strike") return `~~${children}~~`
     if (tag === "a") return `[${children}](${el.getAttribute("href") || ""})`
     if (tag === "code") return `\`${children}\``
-    if (tag === "blockquote") return children.split("\n").map((line) => line ? `> ${line}` : "> ").join("\n")
+    if (tag === "blockquote")
+      return children
+        .split("\n")
+        .map((line) => (line ? `> ${line}` : "> "))
+        .join("\n")
     if (tag === "li") return children
     if (tag === "ul") {
       const lines = Array.from(el.children).map((li) => `- ${walk(li)}`)
       return `${lines.join("\n")}\n`
     }
     if (tag === "ol") {
-      const lines = Array.from(el.children).map((li, i) => `${i + 1}. ${walk(li)}`)
+      const lines = Array.from(el.children).map(
+        (li, i) => `${i + 1}. ${walk(li)}`
+      )
       return `${lines.join("\n")}\n`
     }
     if (tag === "br") return "\n"
@@ -76,7 +85,26 @@ function getMentionQuery(editor: HTMLDivElement): string | null {
   pre.setEnd(range.endContainer, range.endOffset)
   const text = pre.toString()
   const match = text.match(/(?:^|\s)@([a-zA-Z0-9._-]*)$/)
-  return match ? match[1] ?? "" : null
+  return match ? (match[1] ?? "") : null
+}
+
+type QueuedFile = {
+  file: File
+  previewUrl: string | null
+  uploading: boolean
+  uploaded: {
+    url: string
+    name: string
+    size: number
+    contentType: string
+  } | null
+  error: boolean
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 export function MessageInput({
@@ -86,16 +114,28 @@ export function MessageInput({
   mentionUsers = [],
   compact = false,
 }: {
-  onSend: (content: string) => void
+  onSend: (
+    content: string,
+    attachments: Array<{
+      url: string
+      name: string
+      size: number
+      contentType: string
+    }>
+  ) => void
   placeholder?: string
   disabled?: boolean
   mentionUsers?: Array<{ id: string; name: string }>
   compact?: boolean
 }) {
   const editorRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [html, setHtml] = useState("")
   const [plainText, setPlainText] = useState("")
-  const [activeMentionQuery, setActiveMentionQuery] = useState<string | null>(null)
+  const [activeMentionQuery, setActiveMentionQuery] = useState<string | null>(
+    null
+  )
+  const [queue, setQueue] = useState<QueuedFile[]>([])
   const [formatState, setFormatState] = useState({
     bold: false,
     italic: false,
@@ -158,16 +198,77 @@ export function MessageInput({
   useEffect(() => {
     const onSelectionChange = () => updateFormatState()
     document.addEventListener("selectionchange", onSelectionChange)
-    return () => document.removeEventListener("selectionchange", onSelectionChange)
+    return () =>
+      document.removeEventListener("selectionchange", onSelectionChange)
   }, [])
+
+  const uploadFile = async (queuedFile: QueuedFile) => {
+    const form = new FormData()
+    form.append("file", queuedFile.file)
+    setQueue((prev) =>
+      prev.map((q) =>
+        q.file === queuedFile.file ? { ...q, uploading: true } : q
+      )
+    )
+    try {
+      const res = await fetch("/api/upload", { method: "POST", body: form })
+      const data = (await res.json()) as {
+        url: string
+        name: string
+        size: number
+        contentType: string
+      }
+      setQueue((prev) =>
+        prev.map((q) =>
+          q.file === queuedFile.file
+            ? { ...q, uploading: false, uploaded: data }
+            : q
+        )
+      )
+    } catch {
+      setQueue((prev) =>
+        prev.map((q) =>
+          q.file === queuedFile.file
+            ? { ...q, uploading: false, error: true }
+            : q
+        )
+      )
+    }
+  }
+
+  const addFiles = (files: FileList | null) => {
+    if (!files) return
+    const newItems: QueuedFile[] = Array.from(files).map((file) => ({
+      file,
+      previewUrl: file.type.startsWith("image/")
+        ? URL.createObjectURL(file)
+        : null,
+      uploading: false,
+      uploaded: null,
+      error: false,
+    }))
+    setQueue((prev) => [...prev, ...newItems])
+    newItems.forEach((item) => void uploadFile(item))
+  }
+
+  const removeFile = (file: File) => {
+    setQueue((prev) => {
+      const item = prev.find((q) => q.file === file)
+      if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl)
+      return prev.filter((q) => q.file !== file)
+    })
+  }
 
   const handleSend = () => {
     const content = htmlToMarkdown(html)
-    if (!content.trim()) return
-    onSend(content)
+    const attachments = queue.filter((q) => q.uploaded).map((q) => q.uploaded!)
+    if (!content.trim() && attachments.length === 0) return
+    if (queue.some((q) => q.uploading)) return
+    onSend(content, attachments)
     setHtml("")
     setPlainText("")
     setActiveMentionQuery(null)
+    setQueue([])
     if (editorRef.current) {
       editorRef.current.innerHTML = ""
     }
@@ -245,13 +346,16 @@ export function MessageInput({
 
   return (
     <div className={compact ? "border-t p-2" : "border-t p-4"}>
-      <div className="bg-muted/50 relative w-full rounded-xl border p-2">
+      <div className="relative w-full rounded-xl border bg-muted/50 p-2">
         {!compact && (
           <div className="mb-2 flex items-center gap-1 border-b pb-2">
             <Button
               size="icon"
               variant="ghost"
-              className={cn("h-8 w-8", formatState.bold && "border border-primary/40 bg-primary/10")}
+              className={cn(
+                "h-8 w-8",
+                formatState.bold && "border border-primary/40 bg-primary/10"
+              )}
               onMouseDown={keepSelection}
               onClick={() => applyCommand("bold")}
             >
@@ -260,7 +364,10 @@ export function MessageInput({
             <Button
               size="icon"
               variant="ghost"
-              className={cn("h-8 w-8", formatState.italic && "border border-primary/40 bg-primary/10")}
+              className={cn(
+                "h-8 w-8",
+                formatState.italic && "border border-primary/40 bg-primary/10"
+              )}
               onMouseDown={keepSelection}
               onClick={() => applyCommand("italic")}
             >
@@ -269,7 +376,11 @@ export function MessageInput({
             <Button
               size="icon"
               variant="ghost"
-              className={cn("h-8 w-8", formatState.underline && "border border-primary/40 bg-primary/10")}
+              className={cn(
+                "h-8 w-8",
+                formatState.underline &&
+                  "border border-primary/40 bg-primary/10"
+              )}
               onMouseDown={keepSelection}
               onClick={() => applyCommand("underline")}
             >
@@ -278,49 +389,56 @@ export function MessageInput({
             <Button
               size="icon"
               variant="ghost"
-              className={cn("h-8 w-8", formatState.strikeThrough && "border border-primary/40 bg-primary/10")}
+              className={cn(
+                "h-8 w-8",
+                formatState.strikeThrough &&
+                  "border border-primary/40 bg-primary/10"
+              )}
               onMouseDown={keepSelection}
               onClick={() => applyCommand("strikeThrough")}
             >
               <Strikethrough className="h-4 w-4" />
             </Button>
-            <span className="mx-1 h-5 w-px bg-border" />
-            <Button
-              size="icon"
-              variant="ghost"
-              className={cn("h-8 w-8", formatState.orderedList && "border border-primary/40 bg-primary/10")}
-              onMouseDown={keepSelection}
-              onClick={() => applyListWithFallback("ordered")}
-            >
-              <ListOrdered className="h-4 w-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              className={cn("h-8 w-8", formatState.unorderedList && "border border-primary/40 bg-primary/10")}
-              onMouseDown={keepSelection}
-              onClick={() => applyListWithFallback("unordered")}
-            >
-              <List className="h-4 w-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              className={cn("h-8 w-8", formatState.blockquote && "border border-primary/40 bg-primary/10")}
-              onMouseDown={keepSelection}
-              onClick={applyQuoteWithFallback}
-            >
-              <Quote className="h-4 w-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              className={cn("h-8 w-8", formatState.code && "border border-primary/40 bg-primary/10")}
-              onMouseDown={keepSelection}
-              onClick={insertCodeBlock}
-            >
-              <Code2 className="h-4 w-4" />
-            </Button>
+          </div>
+        )}
+
+        {queue.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2 border-b pb-2">
+            {queue.map((q, i) => (
+              <div
+                key={i}
+                className="relative flex items-center gap-2 rounded-lg border bg-muted/40 px-2 py-1.5"
+              >
+                {q.previewUrl ? (
+                  <img
+                    src={q.previewUrl}
+                    alt={q.file.name}
+                    className="h-10 w-10 rounded object-cover"
+                  />
+                ) : (
+                  <FileText className="h-8 w-8 flex-shrink-0 text-muted-foreground" />
+                )}
+                <div className="min-w-0">
+                  <p className="max-w-[120px] truncate text-xs font-medium">
+                    {q.file.name}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {q.uploading
+                      ? "Uploading…"
+                      : q.error
+                        ? "Failed"
+                        : formatBytes(q.file.size)}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeFile(q.file)}
+                  className="ml-1 rounded-full p-0.5 hover:bg-muted"
+                >
+                  <X className="h-3 w-3 text-muted-foreground" />
+                </button>
+              </div>
+            ))}
           </div>
         )}
 
@@ -337,7 +455,7 @@ export function MessageInput({
               }
             }}
             className={cn(
-              "max-h-40 w-full overflow-y-auto whitespace-pre-wrap break-words rounded bg-transparent py-1 outline-none",
+              "max-h-40 w-full overflow-y-auto rounded bg-transparent py-1 break-words whitespace-pre-wrap outline-none",
               compact ? "min-h-[24px] text-sm" : "min-h-[36px] text-base",
               disabled && "pointer-events-none opacity-60"
             )}
@@ -345,7 +463,12 @@ export function MessageInput({
           />
 
           {!plainText && (
-            <div className={cn("pointer-events-none absolute top-1 left-0 text-muted-foreground", compact ? "text-sm" : "text-base")}>
+            <div
+              className={cn(
+                "pointer-events-none absolute top-1 left-0 text-muted-foreground",
+                compact ? "text-sm" : "text-base"
+              )}
+            >
               {placeholder}
             </div>
           )}
@@ -367,7 +490,12 @@ export function MessageInput({
           )}
         </div>
 
-        <div className={cn("mt-2 flex items-center gap-1 border-t pt-2", compact && "mt-1")}>
+        <div
+          className={cn(
+            "mt-2 flex items-center gap-1 border-t pt-2",
+            compact && "mt-1"
+          )}
+        >
           <Popover>
             <PopoverTrigger asChild>
               <Button size="icon" variant="ghost" className="h-8 w-8">
@@ -399,12 +527,32 @@ export function MessageInput({
           >
             <Slash className="h-4 w-4" />
           </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled}
+          >
+            <Paperclip className="h-4 w-4" />
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => addFiles(e.target.files)}
+          />
           <div className="ml-auto">
             <Button
               size="icon"
               className="h-8 w-8"
               onClick={handleSend}
-              disabled={!plainText || disabled}
+              disabled={
+                disabled ||
+                queue.some((q) => q.uploading) ||
+                (!plainText.trim() && queue.length === 0)
+              }
             >
               <SendHorizonal className="h-4 w-4" />
             </Button>

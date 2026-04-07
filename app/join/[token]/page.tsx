@@ -6,6 +6,7 @@ import { db } from "@/server/db"
 import {
   channels,
   channelMembers,
+  messages,
   users,
   workspaceInviteLinks,
   workspaceMembers,
@@ -89,6 +90,22 @@ export default async function JoinWorkspacePage({
       userId: user.id,
       role: (inviteLink.role as "member" | "admin") ?? "member",
     })
+
+    // Post a join message in #general (or the first channel)
+    const [generalChannel] = await db
+      .select({ id: channels.id })
+      .from(channels)
+      .where(eq(channels.workspaceId, inviteLink.workspaceId))
+      .orderBy(channels.createdAt)
+      .limit(1)
+
+    if (generalChannel) {
+      await db.insert(messages).values({
+        channelId: generalChannel.id,
+        userId: user.id,
+        content: "joined the workspace 👋",
+      })
+    }
   }
 
   const workspaceChannels = await db
