@@ -1,5 +1,6 @@
 "use client"
 
+import { skipToken } from "@tanstack/react-query"
 import { trpc } from "@/lib/trpc/client"
 import { useCurrentUser } from "@/lib/user-context"
 import {
@@ -22,7 +23,7 @@ export function DmCreateDialog({
 }) {
   const { currentUser } = useCurrentUser()
   const { data: members } = trpc.workspace.getMembers.useQuery(
-    workspaceId ? { workspaceId } : undefined
+    workspaceId ? { workspaceId } : skipToken
   )
   const router = useRouter()
   const utils = trpc.useUtils()
