@@ -13,9 +13,10 @@ export type AgentSession = {
 const BASE_URL = import.meta.env.DEV
   ? "http://localhost:3000"
   : "https://staged-qfza.onrender.com"
-
-// Webapp sidebar icon rail width — matches webapp's w-12 (48px)
-const SIDEBAR_WIDTH = 48
+const DESKTOP_RAIL_WIDTH = 48
+const AGENT_OPEN_SETTINGS_REQUEST_KEY = "staged-agent-open-settings-request"
+const AGENT_OPEN_FOLDER_REQUEST_KEY = "staged-agent-open-folder-request"
+const AGENT_OPEN_FOLDER_RESULT_KEY = "staged-agent-open-folder-result"
 
 declare global {
   namespace JSX {
@@ -98,6 +99,7 @@ export default function App() {
   const [session] = useState<AgentSession>(() => ({ id: `s-${Date.now()}`, name: "Chat 1", history: [] }))
   const [sessionHistory, setSessionHistory] = useState<unknown[]>([])
   const [update, setUpdate] = useState<{ version: string; downloadUrl: string } | null>(null)
+  const [agentOverlaySuspended, setAgentOverlaySuspended] = useState(false)
   const webviewRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
@@ -164,11 +166,191 @@ export default function App() {
     setSessionHistory(history)
   }, [])
 
-  const goToWorkspace = useCallback(() => {
-    // @ts-expect-error webview method
-    webviewRef.current?.loadURL(`${BASE_URL}/workspace`)
-    setSection("chat")
-  }, [])
+  useEffect(() => {
+    if (section !== "agent") {
+      setAgentOverlaySuspended(false)
+    }
+  }, [section])
+
+  useEffect(() => {
+    if (section !== "agent") return
+    let disposed = false
+    const interval = window.setInterval(() => {
+      // @ts-expect-error webview method
+      void webviewRef.current
+        ?.executeJavaScript(
+          `(() => {
+            const collectElements = () => {
+              const out = [];
+              const queue = [document];
+              while (queue.length > 0) {
+                const root = queue.shift();
+                const nodes = root.querySelectorAll ? root.querySelectorAll("*") : [];
+                for (const el of nodes) {
+                  out.push(el);
+                  if (el.shadowRoot) queue.push(el.shadowRoot);
+                }
+              }
+              return out;
+            };
+            const allEls = collectElements();
+
+            const hasWorkspaceDialog = Boolean(
+              document.querySelector('[data-workspace-settings-dialog]')
+            );
+            if (hasWorkspaceDialog) return true;
+
+            // Next.js DevTools panes/popovers
+            const hasNextDevTools = allEls.some((el) => {
+              const id = (el.id || "").toLowerCase();
+              const cls = (typeof el.className === "string" ? el.className : "").toLowerCase();
+              const aria = (el.getAttribute?.("aria-label") || "").toLowerCase();
+              const tag = (el.tagName || "").toLowerCase();
+              // Check data-nextjs-* / data-next-* attributes on visible, sizable elements
+              const attrs = el.getAttributeNames?.() || [];
+              if (attrs.some(a => a.startsWith("data-nextjs") || a.startsWith("data-next-"))) {
+                const rect = el.getBoundingClientRect();
+                if (rect.width > 100 && rect.height > 60) return true;
+              }
+              return (
+                id.includes("nextjs") ||
+                id.includes("devtools") ||
+                id.includes("__next") ||
+                cls.includes("nextjs") ||
+                cls.includes("devtools") ||
+                aria.includes("dev tools") ||
+                aria.includes("next.js") ||
+                aria.includes("nextjs") ||
+                tag.includes("nextjs") ||
+                tag === "nextjs-portal"
+              );
+            });
+            if (hasNextDevTools) return true;
+
+            const hasDevToolsPrefsPanel = allEls.some((el) => {
+              if (!["DIV", "SECTION", "ASIDE"].includes(el.tagName || "")) return false;
+              const text = (el.textContent || "").trim();
+              if (!text) return false;
+              const looksLikePrefs =
+                text.includes("Hide Dev Tools for this session") ||
+                text.includes("Disable Dev Tools for this project") ||
+                text.includes("Hide Dev Tools shortcut");
+              if (!looksLikePrefs) return false;
+              const rect = el.getBoundingClientRect();
+              return rect.width > 180 && rect.height > 120;
+            });
+            if (hasDevToolsPrefsPanel) return true;
+
+            const hasModal = Boolean(
+              document.querySelector('[role="dialog"][aria-modal="true"], [data-state="open"][role="dialog"]')
+            );
+            if (hasModal) return true;
+
+            // Generic overlay/devtools detection: fixed elements with significant size
+            const fixedEls = allEls.filter((el) => {
+              const style = window.getComputedStyle(el);
+              if (style.position !== "fixed") return false;
+              if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+              const rect = el.getBoundingClientRect();
+              if (rect.width < 120 || rect.height < 80) return false;
+              // Very high z-index = almost certainly a DevTools/overlay panel
+              const zIndex = parseInt(style.zIndex) || 0;
+              if (zIndex > 9000) return true;
+              // Left-rail area overlays (original check)
+              return rect.left < 360 && rect.right > 40;
+            });
+            if (fixedEls.length > 0) return true;
+
+            // Next.js DevTools panel — fixed/sticky + near bottom + elevated z-index
+            const viewportHeight = window.innerHeight;
+            const bottomPanelEls = allEls.filter((el) => {
+              const style = window.getComputedStyle(el);
+              if (style.position !== "fixed" && style.position !== "sticky") return false;
+              if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+              const zIndex = parseInt(style.zIndex) || 0;
+              if (zIndex < 100) return false;
+              const rect = el.getBoundingClientRect();
+              if (rect.width < 200 || rect.height < 40) return false;
+              return rect.top > viewportHeight * 0.65;
+            });
+            return bottomPanelEls.length > 0;
+          })()`
+        )
+        .then((hasOverlayOpen) => {
+          if (disposed || typeof hasOverlayOpen !== "boolean") return
+          setAgentOverlaySuspended((prev) =>
+            hasOverlayOpen ? true : prev ? false : prev
+          )
+        })
+        .catch(() => undefined)
+    }, 250)
+    return () => {
+      disposed = true
+      window.clearInterval(interval)
+    }
+  }, [section])
+
+  useEffect(() => {
+    if (section !== "agent") return
+    let disposed = false
+    const interval = window.setInterval(() => {
+      // @ts-expect-error webview method
+      void webviewRef.current
+        ?.executeJavaScript(
+          `(() => {
+            const key = "${AGENT_OPEN_SETTINGS_REQUEST_KEY}";
+            const value = localStorage.getItem(key);
+            if (!value) return false;
+            localStorage.removeItem(key);
+            return true;
+          })()`
+        )
+        .then((requested) => {
+          if (disposed || requested !== true) return
+          setAgentOverlaySuspended(true)
+        })
+        .catch(() => undefined)
+    }, 200)
+
+    return () => {
+      disposed = true
+      window.clearInterval(interval)
+    }
+  }, [section])
+
+  // Bridge: webview sets a localStorage flag → we open the native folder dialog → write result back
+  useEffect(() => {
+    if (section !== "agent") return
+    let disposed = false
+    const interval = window.setInterval(() => {
+      // @ts-expect-error webview method
+      void webviewRef.current
+        ?.executeJavaScript(
+          `(() => {
+            const key = "${AGENT_OPEN_FOLDER_REQUEST_KEY}";
+            const value = localStorage.getItem(key);
+            if (!value) return false;
+            localStorage.removeItem(key);
+            return true;
+          })()`
+        )
+        .then(async (requested) => {
+          if (disposed || requested !== true) return
+          const folder = await window.api.openFolder()
+          if (!folder || disposed) return
+          // @ts-expect-error webview method
+          void webviewRef.current?.executeJavaScript(
+            `localStorage.setItem(${JSON.stringify(AGENT_OPEN_FOLDER_RESULT_KEY)}, ${JSON.stringify(folder)})`
+          )
+        })
+        .catch(() => undefined)
+    }, 200)
+
+    return () => {
+      disposed = true
+      window.clearInterval(interval)
+    }
+  }, [section])
 
   if (authStatus === "checking") return <LoadingScreen />
   if (authStatus === "signed-out") {
@@ -181,14 +363,19 @@ export default function App() {
     )
   }
 
+  const isMac = window.api.platform === "darwin"
   const activeSession = { ...session, history: sessionHistory }
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#0d0d0d] text-white">
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Titlebar drag area */}
-        <div className="titlebar-drag h-10 shrink-0" />
-
+      {/* macOS titlebar drag region — sits above everything so traffic lights don't overlap webview content */}
+      {isMac && (
+        <div
+          className="titlebar-drag absolute inset-x-0 top-0 z-50"
+          style={{ height: 28 }}
+        />
+      )}
+      <div className="flex flex-1 flex-col overflow-hidden" style={{ paddingTop: isMac ? 28 : 0 }}>
         {/* Update banner */}
         {update && (
           <div className="flex shrink-0 items-center justify-between gap-3 bg-white/[0.06] px-4 py-2 text-[12px]">
@@ -221,6 +408,7 @@ export default function App() {
             ref={webviewRef}
             src={`${BASE_URL}/workspace`}
             partition="persist:webapp"
+            className="z-0"
             style={{ width: "100%", height: "100%", display: "flex" }}
           />
 
@@ -246,17 +434,16 @@ export default function App() {
           )}
 
           {/* Agent overlay — sits on top of webview's content area, to the right of the sidebar */}
-          {section === "agent" && (
+          {section === "agent" && !agentOverlaySuspended && (
             <div
-              className="absolute bottom-0 top-0 right-0 bg-[#0d0d0d]"
-              style={{ left: SIDEBAR_WIDTH }}
+              className="absolute right-0 bottom-0 top-0 z-30 bg-[#0d0d0d]"
+              style={{ left: DESKTOP_RAIL_WIDTH }}
             >
               <AgentSection
                 cwd={cwd}
                 setCwd={setCwd}
                 session={activeSession}
                 onHistoryUpdate={updateSessionHistory}
-                onGoToWorkspace={goToWorkspace}
               />
             </div>
           )}

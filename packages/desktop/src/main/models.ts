@@ -29,7 +29,15 @@ export function getModel(modelId: string, keys: ProviderKeys): LanguageModelV1 {
       return createOpenAI({ apiKey })(model || "gpt-4o")
     }
     case "google": {
-      const apiKey = keys.googleApiKey || process.env.GOOGLE_API_KEY
+      const apiKey =
+        keys.googleApiKey ||
+        process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
+        process.env.GOOGLE_API_KEY
+      if (!apiKey) {
+        throw new Error(
+          "Google API key is missing. Click the ⚙ icon in the input bar and add your Google API key."
+        )
+      }
       return createGoogleGenerativeAI({ apiKey })(
         model || "gemini-2.0-flash-001"
       )

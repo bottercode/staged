@@ -3,7 +3,15 @@
 import { SessionTabs, type Session } from "./session-tabs"
 import { useChat, type CreateUIMessage } from "@ai-sdk/react"
 import { type UIMessage } from "ai"
-import { useState, useRef, useEffect, useMemo, useCallback } from "react"
+import {
+  useState,
+  useRef,
+  useEffect,
+  useMemo,
+  useCallback,
+  type CSSProperties,
+} from "react"
+import { createPortal } from "react-dom"
 import {
   Loader2,
   ChevronDown,
@@ -453,16 +461,47 @@ function ModelSelector({
   onChange: (id: string) => void
 }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const popupRef = useRef<HTMLDivElement>(null)
+  const [popupStyle, setPopupStyle] = useState<CSSProperties>({})
   const current = MODELS.find((m) => m.id === value)
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      if (
+        btnRef.current &&
+        !btnRef.current.contains(e.target as Node) &&
+        popupRef.current &&
+        !popupRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false)
+      }
     }
     document.addEventListener("mousedown", handleClick)
-    return () => document.removeEventListener("mousedown", handleClick)
+    const handleBlur = () => setOpen(false)
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false)
+    }
+    window.addEventListener("blur", handleBlur)
+    window.addEventListener("keydown", handleEscape)
+    return () => {
+      document.removeEventListener("mousedown", handleClick)
+      window.removeEventListener("blur", handleBlur)
+      window.removeEventListener("keydown", handleEscape)
+    }
   }, [])
+
+  useEffect(() => {
+    if (!open || !btnRef.current) return
+    const rect = btnRef.current.getBoundingClientRect()
+    setPopupStyle({
+      position: "fixed",
+      left: rect.left,
+      bottom: window.innerHeight - rect.top + 4,
+      width: 224,
+      zIndex: 9999,
+    })
+  }, [open])
 
   const grouped = MODELS.reduce(
     (acc, m) => {
@@ -472,56 +511,65 @@ function ModelSelector({
     {} as Record<string, typeof MODELS>
   )
 
+  const popup = open ? (
+    <div
+      ref={popupRef}
+      style={popupStyle}
+      className="rounded-lg border bg-popover p-1 shadow-lg"
+    >
+      {Object.entries(grouped).map(([provider, models]) => (
+        <div key={provider}>
+          <p className="px-2 pt-2 pb-1 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+            {provider}
+          </p>
+          {models.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => {
+                if (m.id === "__custom__") {
+                  const customId = window.prompt(
+                    "Enter model as provider:model (e.g. google:gemini-2.5-pro)"
+                  )
+                  if (customId?.trim()) onChange(customId.trim())
+                } else {
+                  onChange(m.id)
+                }
+                setOpen(false)
+              }}
+              className={cn(
+                "flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted",
+                m.id === value
+                  ? "font-medium text-foreground"
+                  : "text-muted-foreground"
+              )}
+            >
+              {m.label}
+              {m.id === value && (
+                <span className="ml-auto text-primary">
+                  <ChevronRight className="h-3 w-3" />
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+  ) : null
+
   return (
-    <div ref={ref} className="relative">
+    <>
       <button
+        ref={btnRef}
         onClick={() => setOpen(!open)}
         className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
         {current ? current.label : `Custom: ${value}`}
         <ChevronDown className="h-3 w-3" />
       </button>
-      {open && (
-        <div className="absolute bottom-full left-0 z-50 mb-1 w-56 rounded-lg border bg-popover p-1 shadow-lg">
-          {Object.entries(grouped).map(([provider, models]) => (
-            <div key={provider}>
-              <p className="px-2 pt-2 pb-1 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-                {provider}
-              </p>
-              {models.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => {
-                    if (m.id === "__custom__") {
-                      const customId = window.prompt(
-                        "Enter model as provider:model (e.g. google:gemini-2.5-pro)"
-                      )
-                      if (customId?.trim()) onChange(customId.trim())
-                    } else {
-                      onChange(m.id)
-                    }
-                    setOpen(false)
-                  }}
-                  className={cn(
-                    "flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted",
-                    m.id === value
-                      ? "font-medium text-foreground"
-                      : "text-muted-foreground"
-                  )}
-                >
-                  {m.label}
-                  {m.id === value && (
-                    <span className="ml-auto text-primary">
-                      <ChevronRight className="h-3 w-3" />
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+      {typeof document !== "undefined" && popup
+        ? createPortal(popup, document.body)
+        : null}
+    </>
   )
 }
 
@@ -529,23 +577,56 @@ function TaskSelector({
   tasks,
   selectedTaskIds,
   onChange,
+  disabled,
 }: {
   tasks: AgentTaskItem[]
   selectedTaskIds: string[]
   onChange: (ids: string[]) => void
+  disabled?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const [boardFilter, setBoardFilter] = useState<string>("all")
-  const ref = useRef<HTMLDivElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const popupRef = useRef<HTMLDivElement>(null)
+  const [popupStyle, setPopupStyle] = useState<CSSProperties>({})
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      if (
+        btnRef.current &&
+        !btnRef.current.contains(e.target as Node) &&
+        popupRef.current &&
+        !popupRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false)
+      }
     }
     document.addEventListener("mousedown", handleClick)
-    return () => document.removeEventListener("mousedown", handleClick)
+    const handleBlur = () => setOpen(false)
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false)
+    }
+    window.addEventListener("blur", handleBlur)
+    window.addEventListener("keydown", handleEscape)
+    return () => {
+      document.removeEventListener("mousedown", handleClick)
+      window.removeEventListener("blur", handleBlur)
+      window.removeEventListener("keydown", handleEscape)
+    }
   }, [])
+
+  useEffect(() => {
+    if (!open || !btnRef.current) return
+    const rect = btnRef.current.getBoundingClientRect()
+    setPopupStyle({
+      position: "fixed",
+      left: rect.left,
+      bottom: window.innerHeight - rect.top + 4,
+      width: 340,
+      zIndex: 9999,
+    })
+  }, [open])
 
   const boardOptions = Array.from(
     new Set(tasks.map((task) => task.boardName || "Unknown"))
@@ -576,11 +657,80 @@ function TaskSelector({
     onChange([...selectedTaskIds, id].slice(0, 20))
   }
 
+  const popup = open ? (
+    <div
+      ref={popupRef}
+      style={popupStyle}
+      className="rounded-lg border bg-background p-2 text-foreground shadow-lg"
+    >
+      <select
+        value={boardFilter}
+        onChange={(e) => setBoardFilter(e.target.value)}
+        className="mb-2 h-8 w-full rounded-md border bg-background px-2 text-xs"
+      >
+        <option value="all">All boards</option>
+        {boardOptions.map((boardName) => (
+          <option key={boardName} value={boardName}>
+            {boardName}
+          </option>
+        ))}
+      </select>
+      <Input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search tasks..."
+        className="h-8 text-xs"
+      />
+      <div className="mt-2 max-h-64 space-y-1 overflow-y-auto">
+        {visibleTasks.length === 0 ? (
+          <p className="px-2 py-4 text-xs text-muted-foreground">
+            No tasks found
+          </p>
+        ) : (
+          visibleTasks.map((task) => {
+            const checked = selectedTaskIds.includes(task.id)
+            return (
+              <button
+                key={task.id}
+                onClick={() => toggleTask(task.id)}
+                className={cn(
+                  "flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
+                  checked ? "bg-muted" : "hover:bg-muted/60"
+                )}
+              >
+                <span className="mt-0.5 text-muted-foreground">
+                  {checked ? (
+                    <Check className="h-3.5 w-3.5" />
+                  ) : (
+                    <span className="inline-block h-3.5 w-3.5 rounded border" />
+                  )}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium text-foreground">
+                    {task.title}
+                  </span>
+                  <span className="block truncate text-muted-foreground">
+                    {[task.boardName, task.columnName]
+                      .filter(Boolean)
+                      .join(" • ")}
+                  </span>
+                </span>
+              </button>
+            )
+          })
+        )}
+      </div>
+    </div>
+  ) : null
+
   return (
-    <div ref={ref} className="relative">
+    <>
       <button
+        ref={btnRef}
+        disabled={disabled}
         onClick={() => setOpen((prev) => !prev)}
-        className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        className="inline-flex h-7 items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+        title={disabled ? "Select a workspace to load tasks" : "Attach tasks"}
       >
         <FileText className="h-3.5 w-3.5" />
         Tasks
@@ -591,67 +741,78 @@ function TaskSelector({
         ) : null}
         <ChevronDown className="h-3 w-3" />
       </button>
-      {open && (
-        <div className="absolute bottom-full left-0 z-50 mb-1 w-[340px] rounded-lg border bg-popover p-2 shadow-lg">
-          <select
-            value={boardFilter}
-            onChange={(e) => setBoardFilter(e.target.value)}
-            className="mb-2 h-8 w-full rounded-md border bg-background px-2 text-xs"
+      {typeof document !== "undefined" && popup
+        ? createPortal(popup, document.body)
+        : null}
+    </>
+  )
+}
+
+// ── Local folder picker (dev only) ───────────────────────
+
+const OPEN_FOLDER_REQUEST_KEY = "staged-agent-open-folder-request"
+const OPEN_FOLDER_RESULT_KEY = "staged-agent-open-folder-result"
+
+function LocalFolderPicker({
+  onSetPath,
+}: {
+  onSetPath: (path: string) => void
+}) {
+  const handleBrowse = () => {
+    localStorage.setItem(OPEN_FOLDER_REQUEST_KEY, Date.now().toString())
+  }
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const result = localStorage.getItem(OPEN_FOLDER_RESULT_KEY)
+      if (!result) return
+      localStorage.removeItem(OPEN_FOLDER_RESULT_KEY)
+      onSetPath(result)
+    }, 100)
+    return () => clearInterval(interval)
+  }, [onSetPath])
+
+  return (
+    <div className="flex h-full items-center justify-center">
+      <div className="flex flex-col items-center gap-6 text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04]">
+          <svg
+            width="28"
+            height="28"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            className="text-white/50"
           >
-            <option value="all">All boards</option>
-            {boardOptions.map((boardName) => (
-              <option key={boardName} value={boardName}>
-                {boardName}
-              </option>
-            ))}
-          </select>
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search tasks..."
-            className="h-8 text-xs"
-          />
-          <div className="mt-2 max-h-64 space-y-1 overflow-y-auto">
-            {visibleTasks.length === 0 ? (
-              <p className="px-2 py-4 text-xs text-muted-foreground">
-                No tasks found
-              </p>
-            ) : (
-              visibleTasks.map((task) => {
-                const checked = selectedTaskIds.includes(task.id)
-                return (
-                  <button
-                    key={task.id}
-                    onClick={() => toggleTask(task.id)}
-                    className={cn(
-                      "flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
-                      checked ? "bg-muted" : "hover:bg-muted/60"
-                    )}
-                  >
-                    <span className="mt-0.5 text-muted-foreground">
-                      {checked ? (
-                        <Check className="h-3.5 w-3.5" />
-                      ) : (
-                        <span className="inline-block h-3.5 w-3.5 rounded border" />
-                      )}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium text-foreground">
-                        {task.title}
-                      </span>
-                      <span className="block truncate text-muted-foreground">
-                        {[task.boardName, task.columnName]
-                          .filter(Boolean)
-                          .join(" • ")}
-                      </span>
-                    </span>
-                  </button>
-                )
-              })
-            )}
-          </div>
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+          </svg>
         </div>
-      )}
+        <div className="space-y-1.5">
+          <h1 className="text-[15px] font-semibold text-white/90">
+            Open a project
+          </h1>
+          <p className="text-[13px] text-white/40">
+            Choose a folder to start coding with AI
+          </p>
+        </div>
+        <button
+          onClick={handleBrowse}
+          className="flex items-center gap-2 rounded-lg bg-white/90 px-5 py-2.5 text-[13px] font-medium text-black transition-opacity hover:opacity-90 active:opacity-75"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+          >
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+          </svg>
+          Browse folder
+        </button>
+      </div>
     </div>
   )
 }
@@ -661,8 +822,12 @@ function TaskSelector({
 const RELEASE_BASE =
   "https://github.com/bottercode/staged/releases/latest/download"
 
-function ConnectScreen() {
+function ConnectScreen({ onSetPath }: { onSetPath: (path: string) => void }) {
   const [platform, setPlatform] = useState<"mac" | "win" | "linux" | null>(null)
+  const isLocal =
+    typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1")
 
   useEffect(() => {
     const ua = navigator.userAgent
@@ -675,6 +840,10 @@ function ConnectScreen() {
     platform === "win"
       ? `${RELEASE_BASE}/Staged-win.exe`
       : `${RELEASE_BASE}/Staged-linux.AppImage`
+
+  if (isLocal) {
+    return <LocalFolderPicker onSetPath={onSetPath} />
+  }
 
   return (
     <div className="flex h-full w-full flex-col items-center justify-center bg-background px-8">
@@ -1190,11 +1359,33 @@ export function AgentPanel() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedWorkspaceId(readSelectedWorkspaceId())
+
+    const fallbackWorkspace = async () => {
+      if (readSelectedWorkspaceId()) return
+      try {
+        const res = await fetch("/api/agent/workspace/default")
+        const data = (await res.json()) as { workspaceId?: string | null }
+        if (typeof data.workspaceId === "string" && data.workspaceId) {
+          setSelectedWorkspaceId(data.workspaceId)
+        }
+      } catch {
+        // ignore
+      }
+    }
+    void fallbackWorkspace()
+
     const onStorage = () => {
       setSelectedWorkspaceId(readSelectedWorkspaceId())
     }
     window.addEventListener("storage", onStorage)
-    return () => window.removeEventListener("storage", onStorage)
+    window.addEventListener("staged-workspace-selection-updated", onStorage)
+    return () => {
+      window.removeEventListener("storage", onStorage)
+      window.removeEventListener(
+        "staged-workspace-selection-updated",
+        onStorage
+      )
+    }
   }, [])
 
   useEffect(() => {
@@ -1348,9 +1539,14 @@ export function AgentPanel() {
         const usage = lastResult?.payload?.usage as
           | { estimatedCostUsd?: number }
           | undefined
-        setRuntimeStatus(
-          lastStatus?.payload?.status ? String(lastStatus.payload.status) : null
-        )
+        const rawStatus = lastStatus?.payload?.status
+          ? String(lastStatus.payload.status)
+          : null
+        const normalizedStatus = rawStatus?.toLowerCase() ?? ""
+        const hiddenStatus =
+          normalizedStatus.includes("update available") ||
+          normalizedStatus.includes("update_available")
+        setRuntimeStatus(hiddenStatus ? null : rawStatus)
         setEstimatedCostUsd(
           typeof usage?.estimatedCostUsd === "number"
             ? usage.estimatedCostUsd
@@ -1519,7 +1715,7 @@ export function AgentPanel() {
 
   // ── Connect screen ──
   if (!projectPath) {
-    return <ConnectScreen />
+    return <ConnectScreen onSetPath={handleSwitchProject} />
   }
 
   // ── Main chat view ──
@@ -2029,6 +2225,7 @@ export function AgentPanel() {
               tasks={availableTasks}
               selectedTaskIds={selectedTaskIds}
               onChange={setSelectedTaskIds}
+              disabled={!selectedWorkspaceId}
             />
             <select
               value={permissionMode}

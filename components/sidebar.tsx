@@ -60,6 +60,7 @@ import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
 type Tab = "chat" | "tasks" | "portals" | "docs" | "agent"
+const AGENT_OPEN_SETTINGS_REQUEST_KEY = "staged-agent-open-settings-request"
 
 function UnreadBadge({ count }: { count: number }) {
   if (count <= 0) return null
@@ -226,6 +227,7 @@ function NavRail({
           <TooltipTrigger asChild>
             <button
               onClick={onOpenSettings}
+              data-settings-trigger="workspace"
               className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
             >
               <Settings2 className="h-4.5 w-4.5" />
@@ -814,12 +816,22 @@ export function Sidebar() {
     }
   }
 
+  const handleOpenSettings = () => {
+    if (activeTab === "agent" && typeof window !== "undefined") {
+      window.localStorage.setItem(
+        AGENT_OPEN_SETTINGS_REQUEST_KEY,
+        String(Date.now())
+      )
+    }
+    setShowAgentSettings(true)
+  }
+
   return (
     <div className="flex h-full flex-shrink-0">
       <NavRail
         activeTab={activeTab}
         onTabChange={handleTabChange}
-        onOpenSettings={() => setShowAgentSettings(true)}
+        onOpenSettings={handleOpenSettings}
         onCreateWorkspace={() => setShowCreateWorkspace(true)}
         workspaces={uniqueWorkspaces}
         activeWorkspaceId={workspace?.id}

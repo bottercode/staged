@@ -287,7 +287,7 @@ export async function POST(req: Request) {
   const shouldUseCliRunner =
     Boolean(projectPath) &&
     (selectedBackend === "auto" || selectedBackend === "claude-code") &&
-    Boolean(resolvedProvider)
+    isCliRunnerModel(normalizedModelId)
 
   if (shouldUseCliRunner && projectPath) {
     const stream = createUIMessageStream({

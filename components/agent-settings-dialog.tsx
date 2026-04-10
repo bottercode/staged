@@ -188,7 +188,10 @@ export function AgentSettingsDialog({
         onOpenChange(nextOpen)
       }}
     >
-      <DialogContent className="w-[min(96vw,1200px)] max-w-[1200px]">
+      <DialogContent
+        data-workspace-settings-dialog="true"
+        className="w-[min(96vw,1200px)] max-w-[1200px] data-open:animate-none data-closed:animate-none"
+      >
         <DialogHeader>
           <DialogTitle>{workspaceName || "Workspace"}</DialogTitle>
           <DialogDescription>

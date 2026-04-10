@@ -173,14 +173,16 @@ app.whenReady().then(() => {
 
   const win = createWindow()
 
-  // Check for update 5s after launch so it doesn't block startup
-  setTimeout(() => {
-    void checkForUpdate().then((update) => {
-      if (update && !win.isDestroyed()) {
-        win.webContents.send("update:available", update)
-      }
-    })
-  }, 5000)
+  // Check for update 5s after launch so it doesn't block startup (skip in dev)
+  if (app.isPackaged) {
+    setTimeout(() => {
+      void checkForUpdate().then((update) => {
+        if (update && !win.isDestroyed()) {
+          win.webContents.send("update:available", update)
+        }
+      })
+    }, 5000)
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

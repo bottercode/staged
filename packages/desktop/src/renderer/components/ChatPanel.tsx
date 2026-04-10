@@ -14,6 +14,7 @@ import {
   ArrowRight,
   Sparkles,
   Plus,
+  Settings2,
 } from "lucide-react"
 import logo from "../assets/logo.png"
 
@@ -280,6 +281,14 @@ export function ChatPanel({
   const [isRunning, setIsRunning] = useState(false)
   const [permissionMode, setPermissionMode] = useState<"edit" | "plan">("edit")
   const [modelId, setModelId] = useState("anthropic:claude-sonnet-4-5-20251001")
+  const [showSettings, setShowSettings] = useState(false)
+  const [apiKeys, setApiKeys] = useState({
+    anthropicApiKey: "",
+    openaiApiKey: "",
+    googleApiKey: "",
+    mistralApiKey: "",
+    xaiApiKey: "",
+  })
   const [gitBranch, setGitBranch] = useState<string | null>(null)
   const [isGit, setIsGit] = useState(false)
   const [pastedImage, setPastedImage] = useState<string | null>(null)
@@ -297,7 +306,17 @@ export function ChatPanel({
 
   // Load settings on mount
   useEffect(() => {
-    window.api.getSettings().then((s) => setModelId(s.modelId)).catch(() => {})
+    window.api.getSettings().then((s) => {
+      setModelId(s.modelId)
+      const k = s.providerApiKeys ?? {}
+      setApiKeys({
+        anthropicApiKey: (k.anthropicApiKey as string) || "",
+        openaiApiKey: (k.openaiApiKey as string) || "",
+        googleApiKey: (k.googleApiKey as string) || "",
+        mistralApiKey: (k.mistralApiKey as string) || "",
+        xaiApiKey: (k.xaiApiKey as string) || "",
+      })
+    }).catch(() => {})
   }, [])
 
   // Load git branch
@@ -455,6 +474,21 @@ export function ChatPanel({
     })
   }
 
+  const saveApiKeys = async () => {
+    const settings = await window.api.getSettings().catch(() => ({ modelId, providerApiKeys: {} }))
+    await window.api.setSettings({
+      modelId: settings.modelId,
+      providerApiKeys: {
+        anthropicApiKey: apiKeys.anthropicApiKey.trim() || undefined,
+        openaiApiKey: apiKeys.openaiApiKey.trim() || undefined,
+        googleApiKey: apiKeys.googleApiKey.trim() || undefined,
+        mistralApiKey: apiKeys.mistralApiKey.trim() || undefined,
+        xaiApiKey: apiKeys.xaiApiKey.trim() || undefined,
+      } as Record<string, string>,
+    })
+    setShowSettings(false)
+  }
+
   const stop = () => {
     if (activeJobRef.current) {
       window.api.stopAgent(activeJobRef.current)
@@ -486,6 +520,20 @@ export function ChatPanel({
   }
 
   const projectName = cwd.split("/").pop() || cwd
+  const visibleMessages = messages.filter((msg) => {
+    if (msg.role !== "user" && msg.role !== "assistant") {
+      return false
+    }
+    if (msg.role === "user") {
+      return msg.content.trim().length > 0
+    }
+    return (
+      msg.content.trim().length > 0 ||
+      msg.toolCalls.length > 0 ||
+      msg.isStreaming ||
+      msg.isError
+    )
+  })
 
   return (
     <div className="flex h-full w-full flex-col bg-background">
@@ -538,7 +586,7 @@ export function ChatPanel({
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="space-y-3 p-4 text-sm">
-          {messages.length === 0 && (
+          {visibleMessages.length === 0 && (
             <div className="flex flex-col items-center justify-center py-24">
               <img src={logo} alt="Staged" className="mb-4 h-12 w-12 rounded-2xl" />
               <p className="text-lg font-semibold text-foreground">What should we build?</p>
@@ -562,7 +610,7 @@ export function ChatPanel({
             </div>
           )}
 
-          {messages.map((msg) => {
+          {visibleMessages.map((msg) => {
             if (msg.role === "user") {
               return (
                 <div
@@ -629,6 +677,47 @@ export function ChatPanel({
         </div>
       </div>
 
+      {/* API key settings panel */}
+      {showSettings && (
+        <div className="border-t bg-muted/20 px-4 py-3">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-medium text-foreground">API Keys</span>
+            <button
+              onClick={() => setShowSettings(false)}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <div className="space-y-1.5">
+            {([
+              { key: "anthropicApiKey" as const, label: "Anthropic", placeholder: "sk-ant-..." },
+              { key: "openaiApiKey" as const, label: "OpenAI", placeholder: "sk-..." },
+              { key: "googleApiKey" as const, label: "Google", placeholder: "AIza..." },
+              { key: "mistralApiKey" as const, label: "Mistral", placeholder: "..." },
+              { key: "xaiApiKey" as const, label: "xAI", placeholder: "xai-..." },
+            ]).map(({ key, label, placeholder }) => (
+              <div key={key} className="flex items-center gap-2">
+                <span className="w-16 shrink-0 text-[11px] text-muted-foreground">{label}</span>
+                <input
+                  type="password"
+                  value={apiKeys[key]}
+                  onChange={(e) => setApiKeys((prev) => ({ ...prev, [key]: e.target.value }))}
+                  placeholder={placeholder}
+                  className="flex-1 rounded border bg-background px-2 py-1 font-mono text-[11px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/40"
+                />
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={() => void saveApiKeys()}
+            className="mt-2.5 w-full rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
+          >
+            Save
+          </button>
+        </div>
+      )}
+
       {/* Input bar */}
       <div className="px-4 pb-4">
         <div className="rounded-2xl border bg-muted/30">
@@ -673,6 +762,13 @@ export function ChatPanel({
           <div className="flex items-center gap-1 px-3 pb-3">
             <button className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
               <Plus className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => setShowSettings((v) => !v)}
+              title="API Keys"
+              className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-muted ${showSettings ? "text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              <Settings2 className="h-3.5 w-3.5" />
             </button>
             <ModelSelector value={modelId} onChange={setModelId} />
             <select

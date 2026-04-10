@@ -118,12 +118,18 @@ export default function ChannelPage() {
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Channel header */}
         <div className="flex h-12 items-center gap-2 border-b px-4">
-          {channel?.isPrivate ? (
-            <Lock className="h-4 w-4 text-muted-foreground" />
+          {channel ? (
+            <>
+              {channel.isPrivate ? (
+                <Lock className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <Hash className="h-4 w-4 text-muted-foreground" />
+              )}
+              <span className="text-sm font-semibold">{channel.name}</span>
+            </>
           ) : (
-            <Hash className="h-4 w-4 text-muted-foreground" />
+            <div className="h-4 w-28 animate-pulse rounded bg-muted" />
           )}
-          <span className="text-sm font-semibold">{channel?.name}</span>
           {channel?.description && (
             <>
               <span className="text-xs text-muted-foreground">|</span>
