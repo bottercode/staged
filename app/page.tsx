@@ -1,3 +1,4 @@
+import Image from "next/image"
 import Link from "next/link"
 import { getServerSession } from "next-auth"
 import { redirect } from "next/navigation"
@@ -111,9 +112,14 @@ export default async function LandingPage() {
           <div className="animate-fade-up flex items-center gap-2">
             <div className="relative">
               <div className="animate-glow absolute inset-0 rounded-lg bg-gradient-to-br from-violet-500 to-pink-500 blur-md" />
-              <div className="relative rounded-lg bg-gradient-to-br from-violet-500 to-pink-500 p-1.5">
-                <Zap className="h-4 w-4 text-white" />
-              </div>
+              <Image
+                src="/logo.png"
+                alt="Staged"
+                width={32}
+                height={32}
+                priority
+                className="relative h-8 w-8 rounded-lg"
+              />
             </div>
             <span className="text-lg font-bold tracking-tight">staged</span>
           </div>
@@ -139,19 +145,19 @@ export default async function LandingPage() {
           <div className="animate-fade-up inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs text-white/80 backdrop-blur-sm">
             <Sparkles className="h-3 w-3 text-yellow-400" />
             <span className="bg-gradient-to-r from-violet-400 via-pink-400 to-orange-400 bg-clip-text font-medium text-transparent">
-              AI-native workspace · Now in beta
+              Chat · Tasks · Docs · Portals · AI — one tool
             </span>
           </div>
 
           <h1 className="animate-fade-up animation-delay-100 mt-8 max-w-4xl text-5xl leading-[1.05] font-bold tracking-tight sm:text-6xl lg:text-7xl">
-            The workspace where{" "}
+            Everything your team needs.{" "}
             <span className="relative inline-block">
               <span className="animate-gradient bg-[linear-gradient(90deg,#a78bfa,#ec4899,#f97316,#a78bfa)] bg-clip-text text-transparent">
-                work moves
+                One
               </span>
             </span>{" "}
             <span className="relative inline-block">
-              forward
+              tool.
               <svg
                 className="absolute -bottom-2 left-0 h-3 w-full"
                 viewBox="0 0 300 12"
@@ -175,9 +181,29 @@ export default async function LandingPage() {
           </h1>
 
           <p className="animate-fade-up animation-delay-200 mt-8 max-w-2xl text-lg leading-relaxed text-white/60 sm:text-xl">
-            Channels, tasks, docs, and AI — everything your team needs to
-            communicate, plan, and ship. All in one beautifully focused place.
+            Stop juggling a dozen apps to get work done. Staged brings channels,
+            tasks, docs, client portals, and an AI agent into a single,
+            beautifully focused workspace.
           </p>
+
+          {/* All-in-one badge row */}
+          <div className="animate-fade-up animation-delay-250 mt-8 flex flex-wrap items-center justify-center gap-2">
+            {[
+              { icon: Hash, label: "Channels", color: "text-violet-300" },
+              { icon: CheckSquare, label: "Tasks", color: "text-pink-300" },
+              { icon: FileText, label: "Docs", color: "text-orange-300" },
+              { icon: Globe, label: "Portals", color: "text-emerald-300" },
+              { icon: Bot, label: "AI Agent", color: "text-sky-300" },
+            ].map(({ icon: Icon, label, color }) => (
+              <div
+                key={label}
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-white/80 backdrop-blur-sm transition-colors hover:bg-white/[0.08]"
+              >
+                <Icon className={`h-3.5 w-3.5 ${color}`} />
+                {label}
+              </div>
+            ))}
+          </div>
 
           <div className="animate-fade-up animation-delay-300 mt-10 flex flex-col items-center gap-4 sm:flex-row">
             <Link
@@ -576,9 +602,13 @@ export default async function LandingPage() {
         <footer className="border-t border-white/5 px-6 py-8">
           <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 sm:flex-row">
             <div className="flex items-center gap-2">
-              <div className="rounded-md bg-gradient-to-br from-violet-500 to-pink-500 p-1">
-                <Zap className="h-3 w-3 text-white" />
-              </div>
+              <Image
+                src="/logo.png"
+                alt="Staged"
+                width={24}
+                height={24}
+                className="h-6 w-6 rounded-md"
+              />
               <span className="text-sm font-semibold">staged</span>
               <span className="text-white/30">·</span>
               <span className="text-xs text-white/50">staged.codula.in</span>
