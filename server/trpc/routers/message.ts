@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { router, publicProcedure } from "../trpc"
-import { messages, users } from "../../db/schema"
+import { messages, users, directMessageMembers } from "../../db/schema"
 import { eq, and, isNull, desc, asc, sql, count, inArray } from "drizzle-orm"
 
 let messagesMigrated = false
@@ -162,6 +162,40 @@ export const messageRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await ensureMessageAttachmentsColumn(ctx.db)
+      if (!ctx.userId || ctx.userId !== input.userId) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Authentication required",
+        })
+      }
+
+      if (!input.channelId && !input.dmRoomId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Message must target a channel or DM room",
+        })
+      }
+
+      if (input.dmRoomId) {
+        const [membership] = await ctx.db
+          .select({ userId: directMessageMembers.userId })
+          .from(directMessageMembers)
+          .where(
+            and(
+              eq(directMessageMembers.roomId, input.dmRoomId),
+              eq(directMessageMembers.userId, ctx.userId)
+            )
+          )
+          .limit(1)
+
+        if (!membership) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You are not a member of this DM room",
+          })
+        }
+      }
+
       const [message] = await ctx.db
         .insert(messages)
         .values({

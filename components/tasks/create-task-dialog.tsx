@@ -29,22 +29,26 @@ const PRIORITY_META: Record<
   urgent: {
     label: "P1",
     iconColor: "text-rose-500",
-    chipColor: "bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300",
+    chipColor:
+      "bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300",
   },
   high: {
     label: "P2",
     iconColor: "text-orange-500",
-    chipColor: "bg-orange-50 text-orange-600 dark:bg-orange-950/30 dark:text-orange-300",
+    chipColor:
+      "bg-orange-50 text-orange-600 dark:bg-orange-950/30 dark:text-orange-300",
   },
   medium: {
     label: "P3",
     iconColor: "text-amber-500",
-    chipColor: "bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-300",
+    chipColor:
+      "bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-300",
   },
   low: {
     label: "P4",
     iconColor: "text-pink-500",
-    chipColor: "bg-pink-50 text-pink-600 dark:bg-pink-950/30 dark:text-pink-300",
+    chipColor:
+      "bg-pink-50 text-pink-600 dark:bg-pink-950/30 dark:text-pink-300",
   },
 }
 
@@ -65,9 +69,9 @@ export function CreateTaskDialog({
 }) {
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
-  const [priority, setPriority] = useState<"low" | "medium" | "high" | "urgent">(
-    "medium"
-  )
+  const [priority, setPriority] = useState<
+    "low" | "medium" | "high" | "urgent"
+  >("medium")
   const [assigneeId, setAssigneeId] = useState<string>("")
   const [dueDate, setDueDate] = useState("")
   const [memberQuery, setMemberQuery] = useState("")
@@ -77,7 +81,16 @@ export function CreateTaskDialog({
   const [dueOpen, setDueOpen] = useState(false)
   const [assigneeOpen, setAssigneeOpen] = useState(false)
   const [labelOpen, setLabelOpen] = useState(false)
-  const { currentUser, users } = useCurrentUser()
+  const { currentUser } = useCurrentUser()
+  const { data: workspaceMembers } = trpc.workspace.getMembers.useQuery({
+    workspaceId,
+  })
+  const members = (workspaceMembers ?? []).map((m) => ({
+    id: m.userId,
+    name: m.name,
+    email: m.email,
+    avatarUrl: m.avatarUrl,
+  }))
   const utils = trpc.useUtils()
 
   const createTask = trpc.task.create.useMutation({
@@ -97,15 +110,13 @@ export function CreateTaskDialog({
 
   const filteredMembers = useMemo(() => {
     const q = memberQuery.trim().toLowerCase()
-    if (!q) return users
-    return users.filter((user) =>
-      [user.name, user.email].some((value) =>
-        value?.toLowerCase().includes(q)
-      )
+    if (!q) return members
+    return members.filter((m) =>
+      [m.name, m.email].some((value) => value?.toLowerCase().includes(q))
     )
-  }, [memberQuery, users])
+  }, [memberQuery, members])
 
-  const selectedAssignee = users.find((user) => user.id === assigneeId)
+  const selectedAssignee = members.find((m) => m.id === assigneeId)
   const currentPriority = PRIORITY_META[priority]
   const suggestedLabels = ["bug", "backend", "frontend", "urgent", "design"]
 
@@ -133,7 +144,7 @@ export function CreateTaskDialog({
         <div className="flex-1 overflow-y-auto">
           <div className="w-full px-5 pt-6 pb-6 sm:px-7 lg:px-8">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+              <div className="flex items-center gap-2 text-xs tracking-wide text-muted-foreground uppercase">
                 <span className="h-2 w-2 rounded-full bg-red-500" />
                 <span>{columnName}</span>
               </div>
@@ -157,28 +168,36 @@ export function CreateTaskDialog({
               <Popover open={priorityOpen} onOpenChange={setPriorityOpen}>
                 <PopoverTrigger asChild>
                   <button className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted">
-                    <Flag className={cn("h-4 w-4", currentPriority.iconColor)} />
+                    <Flag
+                      className={cn("h-4 w-4", currentPriority.iconColor)}
+                    />
                     {currentPriority.label}
                   </button>
                 </PopoverTrigger>
-                <PopoverContent side="bottom" align="start" className="w-auto p-1">
+                <PopoverContent
+                  side="bottom"
+                  align="start"
+                  className="w-auto p-1"
+                >
                   <div className="flex items-center gap-1">
-                    {(["urgent", "high", "medium", "low"] as const).map((value) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => {
-                          setPriority(value)
-                          setPriorityOpen(false)
-                        }}
-                        className={cn(
-                          "rounded-md px-2 py-1 text-xs font-semibold",
-                          PRIORITY_META[value].chipColor
-                        )}
-                      >
-                        {PRIORITY_META[value].label}
-                      </button>
-                    ))}
+                    {(["urgent", "high", "medium", "low"] as const).map(
+                      (value) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => {
+                            setPriority(value)
+                            setPriorityOpen(false)
+                          }}
+                          className={cn(
+                            "rounded-md px-2 py-1 text-xs font-semibold",
+                            PRIORITY_META[value].chipColor
+                          )}
+                        >
+                          {PRIORITY_META[value].label}
+                        </button>
+                      )
+                    )}
                   </div>
                 </PopoverContent>
               </Popover>
@@ -192,7 +211,11 @@ export function CreateTaskDialog({
                       : "No due date"}
                   </button>
                 </PopoverTrigger>
-                <PopoverContent side="bottom" align="start" className="w-64 p-3">
+                <PopoverContent
+                  side="bottom"
+                  align="start"
+                  className="w-64 p-3"
+                >
                   <Input
                     type="date"
                     value={dueDate}
@@ -208,10 +231,16 @@ export function CreateTaskDialog({
                 <PopoverTrigger asChild>
                   <button className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted">
                     <Tag className="h-4 w-4" />
-                    {labels.length > 0 ? `${labels.length} labels` : "Add label"}
+                    {labels.length > 0
+                      ? `${labels.length} labels`
+                      : "Add label"}
                   </button>
                 </PopoverTrigger>
-                <PopoverContent side="bottom" align="start" className="w-72 p-2">
+                <PopoverContent
+                  side="bottom"
+                  align="start"
+                  className="w-72 p-2"
+                >
                   <Input
                     value={labelDraft}
                     onChange={(e) => setLabelDraft(e.target.value)}
@@ -259,7 +288,11 @@ export function CreateTaskDialog({
                     {selectedAssignee?.name ?? "No assignees"}
                   </button>
                 </PopoverTrigger>
-                <PopoverContent side="bottom" align="start" className="w-72 p-2">
+                <PopoverContent
+                  side="bottom"
+                  align="start"
+                  className="w-72 p-2"
+                >
                   <Input
                     value={memberQuery}
                     onChange={(e) => setMemberQuery(e.target.value)}

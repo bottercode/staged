@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { useParams } from "next/navigation"
 import { skipToken } from "@tanstack/react-query"
-import { Hash, Lock, Users, Settings } from "lucide-react"
+import { Hash, Lock, Users, Settings, X } from "lucide-react"
 import { trpc } from "@/lib/trpc/client"
 import { MESSAGE_POLL_QUERY_OPTIONS } from "@/lib/polling"
 import { useCurrentUser } from "@/lib/user-context"
@@ -34,6 +34,7 @@ export default function ChannelPage() {
   const [draftName, setDraftName] = useState("")
   const [draftDescription, setDraftDescription] = useState("")
   const [draftIsPrivate, setDraftIsPrivate] = useState(false)
+  const [selectedMemberToAdd, setSelectedMemberToAdd] = useState("")
   const [preferredWorkspaceId, setPreferredWorkspaceId] = useState<
     string | undefined
   >(undefined)
@@ -106,11 +107,34 @@ export default function ChannelPage() {
       setShowChannelSettings(false)
     },
   })
+  const addChannelMember = trpc.channel.addMember.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.channel.getMembers.invalidate({ channelId }),
+        utils.channel.getById.invalidate({ id: channelId }),
+      ])
+      setSelectedMemberToAdd("")
+    },
+  })
+  const removeChannelMember = trpc.channel.removeMember.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.channel.getMembers.invalidate({ channelId }),
+        utils.channel.getById.invalidate({ id: channelId }),
+      ])
+    },
+  })
 
   const currentMemberRole = workspaceMembers?.find(
     (m) => m.userId === currentUser?.id
   )?.role
   const isAdmin = currentMemberRole === "admin"
+  const existingChannelMemberIds = new Set(
+    (channelMembers ?? []).map((m) => m.id)
+  )
+  const addableMembers = (workspaceMembers ?? []).filter(
+    (member) => !existingChannelMemberIds.has(member.userId)
+  )
 
   return (
     <div className="flex min-w-0 flex-1">
@@ -231,7 +255,7 @@ export default function ChannelPage() {
       )}
 
       <Dialog open={showChannelSettings} onOpenChange={setShowChannelSettings}>
-        <DialogContent>
+        <DialogContent className="max-h-[85vh] w-[calc(100vw-2rem)] overflow-y-auto sm:w-[480px] sm:max-w-[480px]">
           <DialogHeader>
             <DialogTitle>Edit Channel</DialogTitle>
           </DialogHeader>
@@ -311,24 +335,57 @@ export default function ChannelPage() {
                 )}
               </div>
             ) : (
-              <div className="max-h-72 space-y-2 overflow-auto">
-                {(channelMembers ?? []).map((member) => {
-                  const role =
-                    workspaceMembers?.find((wm) => wm.userId === member.id)
-                      ?.role ?? "member"
-                  return (
-                    <div
-                      key={member.id}
-                      className="flex items-center justify-between rounded-md border p-2"
+              <div className="space-y-3 overflow-x-hidden">
+                {isAdmin ? (
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={selectedMemberToAdd}
+                      onChange={(event) =>
+                        setSelectedMemberToAdd(event.target.value)
+                      }
+                      className="h-9 min-w-0 flex-1 rounded-md border bg-background px-3 text-sm"
                     >
-                      <div className="flex items-center gap-2">
-                        <Avatar className="h-7 w-7">
+                      <option value="">Add member...</option>
+                      {addableMembers.map((member) => (
+                        <option key={member.userId} value={member.userId}>
+                          {member.name} ({member.email})
+                        </option>
+                      ))}
+                    </select>
+                    <Button
+                      disabled={
+                        !selectedMemberToAdd || addChannelMember.isPending
+                      }
+                      onClick={() => {
+                        if (!selectedMemberToAdd) return
+                        addChannelMember.mutate({
+                          channelId,
+                          userId: selectedMemberToAdd,
+                        })
+                      }}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                ) : null}
+
+                <div className="max-h-72 space-y-2 overflow-x-hidden overflow-y-auto">
+                  {(channelMembers ?? []).map((member) => {
+                    const role =
+                      workspaceMembers?.find((wm) => wm.userId === member.id)
+                        ?.role ?? "member"
+                    return (
+                      <div
+                        key={member.id}
+                        className="flex items-center gap-2 rounded-md border p-2"
+                      >
+                        <Avatar className="h-7 w-7 shrink-0">
                           <AvatarImage src={member.avatarUrl ?? undefined} />
                           <AvatarFallback className="text-[10px]">
                             {member.name?.[0]?.toUpperCase() ?? "U"}
                           </AvatarFallback>
                         </Avatar>
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium">
                             {member.name}
                           </p>
@@ -336,40 +393,65 @@ export default function ChannelPage() {
                             {member.email}
                           </p>
                         </div>
+                        <span className="shrink-0 rounded border bg-muted px-2 py-0.5 text-xs capitalize">
+                          {role}
+                        </span>
+                        {isAdmin &&
+                        channel?.slug !== "general" &&
+                        member.id !== currentUser?.id ? (
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            className="h-7 w-7 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            disabled={removeChannelMember.isPending}
+                            onClick={() =>
+                              removeChannelMember.mutate({
+                                channelId,
+                                userId: member.id,
+                              })
+                            }
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        ) : null}
                       </div>
-                      <span className="rounded border bg-muted px-2 py-0.5 text-xs capitalize">
-                        {role}
-                      </span>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                </div>
               </div>
             )}
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowChannelSettings(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              disabled={
-                settingsTab !== "about" ||
-                !draftName.trim() ||
-                updateChannel.isPending
-              }
-              onClick={() => {
-                updateChannel.mutate({
-                  id: channelId,
-                  name: draftName.trim(),
-                  description: draftDescription.trim() || undefined,
-                  isPrivate: draftIsPrivate,
-                })
-              }}
-            >
-              {updateChannel.isPending ? "Saving..." : "Save"}
-            </Button>
+            {settingsTab === "about" ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowChannelSettings(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  disabled={!draftName.trim() || updateChannel.isPending}
+                  onClick={() => {
+                    updateChannel.mutate({
+                      id: channelId,
+                      name: draftName.trim(),
+                      description: draftDescription.trim() || undefined,
+                      isPrivate: draftIsPrivate,
+                    })
+                  }}
+                >
+                  {updateChannel.isPending ? "Saving..." : "Save"}
+                </Button>
+              </>
+            ) : (
+              <Button
+                variant="outline"
+                onClick={() => setShowChannelSettings(false)}
+              >
+                Close
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

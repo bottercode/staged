@@ -98,10 +98,12 @@ export function TaskDetailDialog({
   open,
   onOpenChange,
   task,
+  workspaceId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   task: TaskData
+  workspaceId: string
 }) {
   const initialDueDate = task.dueDate
     ? new Date(task.dueDate).toISOString().slice(0, 10)
@@ -136,7 +138,16 @@ export function TaskDetailDialog({
     Array<{ name: string; uploading: boolean; error: boolean }>
   >([])
   const attachFileRef = useRef<HTMLInputElement>(null)
-  const { currentUser, users } = useCurrentUser()
+  const { currentUser } = useCurrentUser()
+  const { data: workspaceMembers } = trpc.workspace.getMembers.useQuery({
+    workspaceId,
+  })
+  const members = (workspaceMembers ?? []).map((m) => ({
+    id: m.userId,
+    name: m.name,
+    email: m.email,
+    avatarUrl: m.avatarUrl,
+  }))
   const utils = trpc.useUtils()
 
   const comments = trpc.task.comments.useQuery(
@@ -172,14 +183,14 @@ export function TaskDetailDialog({
 
   const filteredMembers = useMemo(() => {
     const q = memberQuery.trim().toLowerCase()
-    if (!q) return users
-    return users.filter((user) =>
-      [user.name, user.email].some((value) => value?.toLowerCase().includes(q))
+    if (!q) return members
+    return members.filter((m) =>
+      [m.name, m.email].some((value) => value?.toLowerCase().includes(q))
     )
-  }, [memberQuery, users])
+  }, [memberQuery, members])
 
-  const selectedAssignee = users.find((user) => user.id === assigneeId)
-  const creator = users.find((user) => user.id === task.createdById)
+  const selectedAssignee = members.find((m) => m.id === assigneeId)
+  const creator = members.find((m) => m.id === task.createdById)
   const currentPriority = PRIORITY_META[priority]
   const hasUnsavedChanges =
     title.trim() !== savedSnapshot.title ||

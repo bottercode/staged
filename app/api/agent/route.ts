@@ -423,6 +423,7 @@ export async function POST(req: Request) {
         } catch (error) {
           const errorText =
             error instanceof Error ? error.message : "Unknown error"
+          console.error("[agent error]", errorText)
           void logConversationEvent(
             userId,
             normalizedConversationId,
@@ -473,9 +474,11 @@ export async function POST(req: Request) {
     })
     return response
   } catch (error) {
+    const errorText = error instanceof Error ? error.message : "Unknown error"
+    console.error("[agent error]", errorText)
     void logConversationEvent(userId, normalizedConversationId, "turn_error", {
-      error: error instanceof Error ? error.message : "Unknown error",
+      error: errorText,
     })
-    return errorStream(error instanceof Error ? error.message : "Unknown error")
+    return errorStream(errorText)
   }
 }

@@ -263,6 +263,7 @@ export function BoardView({
           open={!!selectedTask}
           onOpenChange={(open) => !open && setSelectedTask(null)}
           task={selectedTask}
+          workspaceId={workspaceId}
         />
       )}
     </>

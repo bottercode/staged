@@ -929,6 +929,7 @@ export default function BoardPage() {
           open={Boolean(selectedTask)}
           onOpenChange={(open) => !open && setSelectedTask(null)}
           task={selectedTask}
+          workspaceId={board.workspaceId}
         />
       ) : null}
     </div>

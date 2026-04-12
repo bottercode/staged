@@ -5,18 +5,28 @@ import {
   directMessageMembers,
   messages,
   users,
+  workspaceMembers,
 } from "../../db/schema"
-import { eq, and, asc, sql, ne } from "drizzle-orm"
+import { eq, and, asc, ne } from "drizzle-orm"
+import { TRPCError } from "@trpc/server"
 
 export const dmRouter = router({
   list: publicProcedure
     .input(
       z.object({
         workspaceId: z.string().uuid(),
-        userId: z.string().uuid(),
+        userId: z.string().uuid().optional(),
       })
     )
     .query(async ({ ctx, input }) => {
+      const actorUserId = ctx.userId ?? input.userId
+      if (!actorUserId) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Authentication required",
+        })
+      }
+
       // Get all DM rooms for this user in this workspace
       const rooms = await ctx.db
         .select({
@@ -30,7 +40,7 @@ export const dmRouter = router({
         )
         .where(
           and(
-            eq(directMessageMembers.userId, input.userId),
+            eq(directMessageMembers.userId, actorUserId),
             eq(directMessageRooms.workspaceId, input.workspaceId)
           )
         )
@@ -49,7 +59,7 @@ export const dmRouter = router({
             .where(
               and(
                 eq(directMessageMembers.roomId, room.roomId),
-                ne(directMessageMembers.userId, input.userId)
+                ne(directMessageMembers.userId, actorUserId)
               )
             )
 
@@ -67,16 +77,60 @@ export const dmRouter = router({
     .input(
       z.object({
         workspaceId: z.string().uuid(),
-        userId: z.string().uuid(),
+        userId: z.string().uuid().optional(),
         otherUserId: z.string().uuid(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // Check if DM room already exists between these users
+      const actorUserId = ctx.userId ?? input.userId
+      if (!actorUserId) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Authentication required",
+        })
+      }
+
+      // Ensure both users are in the selected workspace
+      const memberships = await ctx.db
+        .select({ id: workspaceMembers.id })
+        .from(workspaceMembers)
+        .where(
+          and(
+            eq(workspaceMembers.workspaceId, input.workspaceId),
+            eq(workspaceMembers.userId, actorUserId)
+          )
+        )
+      const otherMemberships = await ctx.db
+        .select({ id: workspaceMembers.id })
+        .from(workspaceMembers)
+        .where(
+          and(
+            eq(workspaceMembers.workspaceId, input.workspaceId),
+            eq(workspaceMembers.userId, input.otherUserId)
+          )
+        )
+
+      if (memberships.length === 0 || otherMemberships.length === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Both users must be members of this workspace",
+        })
+      }
+
+      // Check if DM room already exists between these users in this workspace
       const existingRooms = await ctx.db
         .select({ roomId: directMessageMembers.roomId })
         .from(directMessageMembers)
-        .where(eq(directMessageMembers.userId, input.userId))
+        .innerJoin(
+          directMessageRooms,
+          eq(directMessageMembers.roomId, directMessageRooms.id)
+        )
+        .where(
+          and(
+            eq(directMessageMembers.userId, actorUserId),
+            eq(directMessageRooms.workspaceId, input.workspaceId)
+          )
+        )
 
       for (const room of existingRooms) {
         const otherMember = await ctx.db
@@ -100,7 +154,7 @@ export const dmRouter = router({
         .returning()
 
       await ctx.db.insert(directMessageMembers).values([
-        { roomId: dmRoom.id, userId: input.userId },
+        { roomId: dmRoom.id, userId: actorUserId },
         { roomId: dmRoom.id, userId: input.otherUserId },
       ])
 
@@ -115,6 +169,25 @@ export const dmRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
+      if (ctx.userId) {
+        const [membership] = await ctx.db
+          .select({ userId: directMessageMembers.userId })
+          .from(directMessageMembers)
+          .where(
+            and(
+              eq(directMessageMembers.roomId, input.roomId),
+              eq(directMessageMembers.userId, ctx.userId)
+            )
+          )
+          .limit(1)
+        if (!membership) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You are not a member of this DM",
+          })
+        }
+      }
+
       const rows = await ctx.db
         .select({
           id: messages.id,

@@ -407,50 +407,16 @@ type PersistedAgentState = {
 // ── Model list ───────────────────────────────────────────
 
 const MODELS = [
-  { id: "anthropic:sonnet", label: "Sonnet (Alias)", provider: "Anthropic" },
-  { id: "anthropic:opus", label: "Opus (Alias)", provider: "Anthropic" },
-  { id: "anthropic:haiku", label: "Haiku (Alias)", provider: "Anthropic" },
   {
-    id: "anthropic:claude-sonnet-4-6",
-    label: "Claude Sonnet 4.6",
-    provider: "Anthropic",
-  },
-  {
-    id: "anthropic:claude-opus-4-6",
-    label: "Claude Opus 4.6",
-    provider: "Anthropic",
-  },
-  {
-    id: "anthropic:claude-haiku-4-5",
-    label: "Claude Haiku 4.5",
-    provider: "Anthropic",
-  },
-  { id: "openai:gpt-4o", label: "GPT-4o", provider: "OpenAI" },
-  { id: "openai:gpt-4o-mini", label: "GPT-4o Mini", provider: "OpenAI" },
-  { id: "openai:gpt-4.1", label: "GPT-4.1", provider: "OpenAI" },
-  { id: "openai:gpt-4.1-mini", label: "GPT-4.1 Mini", provider: "OpenAI" },
-  { id: "openai:o3", label: "o3", provider: "OpenAI" },
-  { id: "openai:o4-mini", label: "o4-mini", provider: "OpenAI" },
-  { id: "google:gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "Google" },
-  {
-    id: "google:gemini-2.5-flash",
-    label: "Gemini 2.5 Flash",
+    id: "google:gemini-3-flash-preview",
+    label: "Gemini 3 Flash",
     provider: "Google",
   },
   {
-    id: "google:gemini-2.0-flash",
-    label: "Gemini 2.0 Flash",
+    id: "google:gemini-3.1-pro-preview",
+    label: "Gemini 3.1 Pro Preview",
     provider: "Google",
   },
-  {
-    id: "mistral:mistral-large-latest",
-    label: "Mistral Large",
-    provider: "Mistral",
-  },
-  { id: "mistral:codestral-latest", label: "Codestral", provider: "Mistral" },
-  { id: "xai:grok-3", label: "Grok 3", provider: "xAI" },
-  { id: "xai:grok-3-mini", label: "Grok 3 Mini", provider: "xAI" },
-  { id: "__custom__", label: "Custom model ID...", provider: "Custom" },
 ]
 
 function ModelSelector({
@@ -526,14 +492,7 @@ function ModelSelector({
             <button
               key={m.id}
               onClick={() => {
-                if (m.id === "__custom__") {
-                  const customId = window.prompt(
-                    "Enter model as provider:model (e.g. google:gemini-2.5-pro)"
-                  )
-                  if (customId?.trim()) onChange(customId.trim())
-                } else {
-                  onChange(m.id)
-                }
+                onChange(m.id)
                 setOpen(false)
               }}
               className={cn(
@@ -903,7 +862,7 @@ export function AgentPanel() {
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null)
   const [input, setInput] = useState("")
   const [pastedImage, setPastedImage] = useState<string | null>(null)
-  const [modelId, setModelId] = useState("anthropic:sonnet")
+  const [modelId, setModelId] = useState("google:gemini-3-flash")
   const [providerApiKeys, setProviderApiKeys] = useState<AgentProviderApiKeys>(
     {}
   )
@@ -1012,6 +971,7 @@ export function AgentPanel() {
   const { messages, sendMessage, stop, status, setMessages } = useChat({
     id: activeConversationId || undefined,
     transport,
+    onError: (error) => console.error("[model error]", error),
   })
 
   useEffect(() => {
@@ -1300,7 +1260,7 @@ export function AgentPanel() {
         if (disposed || !persisted) return
         setProjectPath(persisted.projectPath ?? null)
         setProjectInfo(persisted.projectInfo ?? null)
-        setModelId(persisted.modelId || "anthropic:sonnet")
+        setModelId(persisted.modelId || "google:gemini-3-flash")
         setPermissionMode(persisted.permissionMode === "plan" ? "plan" : "edit")
         setRecentFolders(
           Array.isArray(persisted.recentFolders)

@@ -188,4 +188,155 @@ export const channelRouter = router({
         .innerJoin(users, eq(channelMembers.userId, users.id))
         .where(eq(channelMembers.channelId, input.channelId))
     }),
+
+  addMember: publicProcedure
+    .input(
+      z.object({
+        channelId: z.string().uuid(),
+        userId: z.string().uuid(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.userId) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Authentication required",
+        })
+      }
+
+      const [channel] = await ctx.db
+        .select({
+          id: channels.id,
+          workspaceId: channels.workspaceId,
+        })
+        .from(channels)
+        .where(eq(channels.id, input.channelId))
+        .limit(1)
+
+      if (!channel) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found" })
+      }
+
+      const [actorMembership] = await ctx.db
+        .select({ role: workspaceMembers.role })
+        .from(workspaceMembers)
+        .where(
+          and(
+            eq(workspaceMembers.workspaceId, channel.workspaceId),
+            eq(workspaceMembers.userId, ctx.userId)
+          )
+        )
+        .limit(1)
+
+      if (!actorMembership || actorMembership.role !== "admin") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only workspace admins can manage channel members",
+        })
+      }
+
+      const [targetWorkspaceMembership] = await ctx.db
+        .select({ id: workspaceMembers.id })
+        .from(workspaceMembers)
+        .where(
+          and(
+            eq(workspaceMembers.workspaceId, channel.workspaceId),
+            eq(workspaceMembers.userId, input.userId)
+          )
+        )
+        .limit(1)
+
+      if (!targetWorkspaceMembership) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "User is not in this workspace",
+        })
+      }
+
+      const [existing] = await ctx.db
+        .select({ id: channelMembers.id })
+        .from(channelMembers)
+        .where(
+          and(
+            eq(channelMembers.channelId, input.channelId),
+            eq(channelMembers.userId, input.userId)
+          )
+        )
+        .limit(1)
+
+      if (!existing) {
+        await ctx.db.insert(channelMembers).values({
+          channelId: input.channelId,
+          userId: input.userId,
+        })
+      }
+
+      return { ok: true }
+    }),
+
+  removeMember: publicProcedure
+    .input(
+      z.object({
+        channelId: z.string().uuid(),
+        userId: z.string().uuid(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.userId) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Authentication required",
+        })
+      }
+
+      const [channel] = await ctx.db
+        .select({
+          id: channels.id,
+          workspaceId: channels.workspaceId,
+          slug: channels.slug,
+        })
+        .from(channels)
+        .where(eq(channels.id, input.channelId))
+        .limit(1)
+
+      if (!channel) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found" })
+      }
+
+      const [actorMembership] = await ctx.db
+        .select({ role: workspaceMembers.role })
+        .from(workspaceMembers)
+        .where(
+          and(
+            eq(workspaceMembers.workspaceId, channel.workspaceId),
+            eq(workspaceMembers.userId, ctx.userId)
+          )
+        )
+        .limit(1)
+
+      if (!actorMembership || actorMembership.role !== "admin") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only workspace admins can manage channel members",
+        })
+      }
+
+      if (channel.slug === "general") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Cannot remove members from #general",
+        })
+      }
+
+      await ctx.db
+        .delete(channelMembers)
+        .where(
+          and(
+            eq(channelMembers.channelId, input.channelId),
+            eq(channelMembers.userId, input.userId)
+          )
+        )
+
+      return { ok: true }
+    }),
 })
