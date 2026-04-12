@@ -20,14 +20,14 @@ import logo from "../assets/logo.png"
 
 // ── Types ─────────────────────────────────────────────────
 
-type ToolCall = {
+export type ToolCall = {
   id: string
   name: string
   input: unknown
   output?: string
 }
 
-type Message = {
+export type Message = {
   id: string
   role: "user" | "assistant"
   content: string
@@ -265,6 +265,8 @@ export function ChatPanel({
   cwd,
   sessionId,
   history,
+  messages,
+  setMessages,
   onHistoryUpdate,
   onDisconnect,
   onSwitchRepo,
@@ -272,11 +274,12 @@ export function ChatPanel({
   cwd: string
   sessionId: string
   history: unknown[]
+  messages: Message[]
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>
   onHistoryUpdate: (h: unknown[]) => void
   onDisconnect: () => void
   onSwitchRepo: () => void
 }) {
-  const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [isRunning, setIsRunning] = useState(false)
   const [permissionMode, setPermissionMode] = useState<"edit" | "plan">("edit")
@@ -350,14 +353,10 @@ export function ChatPanel({
     inputRef.current?.focus()
   }, [sessionId])
 
-  // Reset messages when session changes
+  // Keep historyRef in sync with prop
   useEffect(() => {
-    setMessages([])
-    setInput("")
-    setResponseStats({ startTime: null, endTime: null, finishedVerb: null })
     historyRef.current = history
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId])
+  }, [history])
 
   // Loading verb cycling
   useEffect(() => {

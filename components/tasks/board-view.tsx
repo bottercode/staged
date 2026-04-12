@@ -105,29 +105,10 @@ export function BoardView({
       return
     }
 
-    const allInput = { id: boardId, filterMode: "all" as const }
-    const activeInput = { id: boardId, filterMode: "active" as const }
+    const queryInput = { id: boardId }
+    const previous = utils.board.getById.getData(queryInput)
 
-    const previousAll = utils.board.getById.getData(allInput)
-    const previousActive = utils.board.getById.getData(activeInput)
-
-    utils.board.getById.setData(allInput, (current) => {
-      if (!current) return current
-      const newColumns = moveTaskInColumns({
-        columns: current.columns as Column[],
-        taskId: draggableId,
-        sourceColumnId: source.droppableId,
-        sourceIndex: source.index,
-        destinationColumnId: destination.droppableId,
-        destinationIndex: destination.index,
-      })
-      return {
-        ...current,
-        columns: newColumns as typeof current.columns,
-      }
-    })
-
-    utils.board.getById.setData(activeInput, (current) => {
+    utils.board.getById.setData(queryInput, (current) => {
       if (!current) return current
       const newColumns = moveTaskInColumns({
         columns: current.columns as Column[],
@@ -151,11 +132,10 @@ export function BoardView({
       },
       {
         onError: () => {
-          utils.board.getById.setData(allInput, previousAll)
-          utils.board.getById.setData(activeInput, previousActive)
+          utils.board.getById.setData(queryInput, previous)
         },
         onSettled: () => {
-          utils.board.getById.invalidate({ id: boardId })
+          utils.board.getById.invalidate(queryInput)
         },
       }
     )

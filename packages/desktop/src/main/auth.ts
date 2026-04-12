@@ -1,7 +1,7 @@
 import { app, BrowserWindow, session, shell } from "electron"
 
 export const BASE_URL = app.isPackaged
-  ? "https://staged-qfza.onrender.com"
+  ? "https://staged.codula.in"
   : "http://localhost:3000"
 
 export function isAuthComplete(url: string): boolean {

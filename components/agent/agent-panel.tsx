@@ -404,6 +404,31 @@ type PersistedAgentState = {
   projectSessionStore?: Record<string, ProjectSessionBucket>
 }
 
+// Synchronous sessionStorage cache so remounting AgentPanel (e.g. after
+// navigating away from /workspace/agent and back) doesn't flash the Connect
+// screen while waiting on /api/agent/state.
+const AGENT_STATE_CACHE_KEY = "staged-agent-state-cache-v1"
+
+function readCachedAgentState(): PersistedAgentState | null {
+  if (typeof window === "undefined") return null
+  try {
+    const raw = window.sessionStorage.getItem(AGENT_STATE_CACHE_KEY)
+    if (!raw) return null
+    return JSON.parse(raw) as PersistedAgentState
+  } catch {
+    return null
+  }
+}
+
+function writeCachedAgentState(state: PersistedAgentState): void {
+  if (typeof window === "undefined") return
+  try {
+    window.sessionStorage.setItem(AGENT_STATE_CACHE_KEY, JSON.stringify(state))
+  } catch {
+    // quota / serialization failures are non-fatal
+  }
+}
+
 // ── Model list ───────────────────────────────────────────
 
 const MODELS = [
@@ -858,15 +883,30 @@ export function AgentPanel() {
   })
   const [initialSession] = useState<AgentSession>(() => createSession("Chat 1"))
 
-  const [projectPath, setProjectPath] = useState<string | null>(null)
-  const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null)
+  // Read sessionStorage cache once on mount so a remount (e.g. after
+  // navigating away and back to /workspace/agent) doesn't flash the Connect
+  // screen while waiting for /api/agent/state to resolve.
+  const cachedState = useRef<PersistedAgentState | null>(
+    readCachedAgentState()
+  ).current
+
+  const [projectPath, setProjectPath] = useState<string | null>(
+    cachedState?.projectPath ?? null
+  )
+  const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(
+    cachedState?.projectInfo ?? null
+  )
   const [input, setInput] = useState("")
   const [pastedImage, setPastedImage] = useState<string | null>(null)
-  const [modelId, setModelId] = useState("google:gemini-3-flash")
+  const [modelId, setModelId] = useState(
+    cachedState?.modelId || "google:gemini-3-flash"
+  )
   const [providerApiKeys, setProviderApiKeys] = useState<AgentProviderApiKeys>(
     {}
   )
-  const [permissionMode, setPermissionMode] = useState<"edit" | "plan">("edit")
+  const [permissionMode, setPermissionMode] = useState<"edit" | "plan">(
+    cachedState?.permissionMode === "plan" ? "plan" : "edit"
+  )
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
     null
   )
@@ -875,7 +915,9 @@ export function AgentPanel() {
   const [gitBranch, setGitBranch] = useState<string | null>(null)
   const [runtimeStatus, setRuntimeStatus] = useState<string | null>(null)
   const [estimatedCostUsd, setEstimatedCostUsd] = useState<number | null>(null)
-  const [recentFolders, setRecentFolders] = useState<string[]>([])
+  const [recentFolders, setRecentFolders] = useState<string[]>(
+    cachedState?.recentFolders ?? []
+  )
   const [showSwitchBrowser, setShowSwitchBrowser] = useState(false)
   const [showSwitchRepoDialog, setShowSwitchRepoDialog] = useState(false)
   const [sessionEditDialog, setSessionEditDialog] = useState<{
@@ -885,15 +927,36 @@ export function AgentPanel() {
     value: string
   }>({ open: false, mode: "rename", sessionId: null, value: "" })
 
-  const [sessions, setSessions] = useState<AgentSession[]>(() => [
-    initialSession,
-  ])
-  const [currentSessionId, setCurrentSessionId] = useState<string>(
-    initialSession.id
+  const cachedBucket =
+    cachedState?.projectPath &&
+    cachedState.projectSessionStore?.[cachedState.projectPath]
+      ? cachedState.projectSessionStore[cachedState.projectPath]
+      : null
+  const cachedSessions: AgentSession[] | null =
+    cachedBucket && cachedBucket.sessions.length > 0
+      ? (cachedBucket.sessions as unknown as AgentSession[])
+      : cachedState?.sessions && cachedState.sessions.length > 0
+        ? (cachedState.sessions as unknown as AgentSession[])
+        : null
+  const cachedCurrentSessionId: string | null = cachedBucket
+    ? cachedBucket.currentSessionId
+    : (cachedState?.currentSessionId ?? null)
+
+  const [sessions, setSessions] = useState<AgentSession[]>(
+    () => cachedSessions ?? [initialSession]
   )
+  const [currentSessionId, setCurrentSessionId] = useState<string>(() => {
+    if (cachedSessions && cachedCurrentSessionId) {
+      const exists = cachedSessions.some(
+        (session) => session.id === cachedCurrentSessionId
+      )
+      return exists ? cachedCurrentSessionId : cachedSessions[0].id
+    }
+    return initialSession.id
+  })
   const [projectSessionStore, setProjectSessionStore] = useState<
     Record<string, ProjectSessionBucket>
-  >({})
+  >(cachedState?.projectSessionStore ?? {})
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const hydratingSessionRef = useRef(false)
@@ -1258,9 +1321,17 @@ export function AgentPanel() {
         }
         const persisted = data.state
         if (disposed || !persisted) return
-        setProjectPath(persisted.projectPath ?? null)
-        setProjectInfo(persisted.projectInfo ?? null)
-        setModelId(persisted.modelId || "google:gemini-3-flash")
+        // Only write from the server if we don't already have a value from
+        // the sessionStorage cache or from user interaction. This prevents
+        // a slow /api/agent/state response from clobbering a just-picked
+        // folder or a chat the user is in the middle of.
+        setProjectPath((prev) => prev ?? persisted.projectPath ?? null)
+        setProjectInfo((prev) => prev ?? persisted.projectInfo ?? null)
+        setModelId((prev) =>
+          prev && prev !== "google:gemini-3-flash"
+            ? prev
+            : persisted.modelId || "google:gemini-3-flash"
+        )
         setPermissionMode(persisted.permissionMode === "plan" ? "plan" : "edit")
         setRecentFolders(
           Array.isArray(persisted.recentFolders)
@@ -1418,6 +1489,35 @@ export function AgentPanel() {
       disposed = true
     }
   }, [])
+
+  // Synchronous sessionStorage mirror of agent state. Written immediately
+  // (no debounce, no hydration gate) so if AgentPanel remounts after a route
+  // change it can seed initial state from cache and skip the Connect screen.
+  useEffect(() => {
+    const nextStore = { ...projectSessionStore }
+    if (projectPath) {
+      nextStore[projectPath] = { sessions, currentSessionId }
+    }
+    writeCachedAgentState({
+      projectPath,
+      projectInfo,
+      modelId,
+      permissionMode,
+      sessions: sessions as unknown as PersistedAgentSession[],
+      currentSessionId,
+      recentFolders,
+      projectSessionStore: nextStore,
+    })
+  }, [
+    projectPath,
+    projectInfo,
+    modelId,
+    permissionMode,
+    sessions,
+    currentSessionId,
+    recentFolders,
+    projectSessionStore,
+  ])
 
   useEffect(() => {
     if (!hydratedFromStorageRef.current) return

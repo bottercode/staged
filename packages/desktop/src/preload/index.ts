@@ -1,11 +1,20 @@
 import { contextBridge, ipcRenderer } from "electron"
 import type { AgentEvent } from "../main/agent"
 
+export type PersistedSession = {
+  cwd: string | null
+  messages: unknown[]
+  history: unknown[]
+}
+
 export type IpcApi = {
   platform: NodeJS.Platform
   openFolder: () => Promise<string | null>
   getSettings: () => Promise<{ modelId: string; providerApiKeys: Record<string, string> }>
   setSettings: (s: { modelId: string; providerApiKeys: Record<string, string> }) => Promise<void>
+  getSession: () => Promise<PersistedSession>
+  setSession: (s: PersistedSession) => Promise<void>
+  clearSession: () => Promise<void>
   listModels: () => Promise<{ id: string; label: string }[]>
   getGitBranch: (cwd: string) => Promise<{ branch: string | null; isGit: boolean }>
   runAgent: (payload: {
@@ -35,6 +44,9 @@ const api: IpcApi = {
 
   getSettings: () => ipcRenderer.invoke("settings:get"),
   setSettings: (s) => ipcRenderer.invoke("settings:set", s),
+  getSession: () => ipcRenderer.invoke("session:get"),
+  setSession: (s) => ipcRenderer.invoke("session:set", s),
+  clearSession: () => ipcRenderer.invoke("session:clear"),
   listModels: () => ipcRenderer.invoke("models:list"),
   getGitBranch: (cwd) => ipcRenderer.invoke("agent:git-branch", cwd),
 

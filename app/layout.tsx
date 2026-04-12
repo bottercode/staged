@@ -19,6 +19,20 @@ const fontMono = Geist_Mono({
 export const metadata = {
   title: "Staged",
   description: "The workspace where work moves forward",
+  metadataBase: new URL("https://staged.codula.in"),
+  icons: {
+    icon: "/logo.png",
+    shortcut: "/logo.png",
+    apple: "/logo.png",
+  },
+  openGraph: {
+    title: "Staged — The workspace where work moves forward",
+    description:
+      "Channels, tasks, docs, and AI — everything your team needs, in one place.",
+    url: "https://staged.codula.in",
+    siteName: "Staged",
+    images: ["/logo.png"],
+  },
 }
 
 export default async function RootLayout({

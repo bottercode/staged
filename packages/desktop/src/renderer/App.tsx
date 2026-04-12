@@ -3,6 +3,7 @@ import { Loader2, ArrowRight } from "lucide-react"
 import logo from "./assets/logo.png"
 import type { Section } from "./types"
 import { AgentSection } from "./sections/AgentSection"
+import type { Message } from "./components/ChatPanel"
 
 export type AgentSession = {
   id: string
@@ -12,7 +13,7 @@ export type AgentSession = {
 
 const BASE_URL = import.meta.env.DEV
   ? "http://localhost:3000"
-  : "https://staged-qfza.onrender.com"
+  : "https://staged.codula.in"
 const DESKTOP_RAIL_WIDTH = 48
 const AGENT_OPEN_SETTINGS_REQUEST_KEY = "staged-agent-open-settings-request"
 const AGENT_OPEN_FOLDER_REQUEST_KEY = "staged-agent-open-folder-request"
@@ -95,9 +96,11 @@ export default function App() {
   const [signingIn, setSigningIn] = useState(false)
   const [section, setSection] = useState<Section>("chat")
   const [webviewLoading, setWebviewLoading] = useState(true)
-  const [cwd, setCwd] = useState<string | null>(null)
+  const [cwd, setCwdState] = useState<string | null>(null)
   const [session] = useState<AgentSession>(() => ({ id: `s-${Date.now()}`, name: "Chat 1", history: [] }))
   const [sessionHistory, setSessionHistory] = useState<unknown[]>([])
+  const [messages, setMessages] = useState<Message[]>([])
+  const [agentEverOpened, setAgentEverOpened] = useState(false)
   const [update, setUpdate] = useState<{ version: string; downloadUrl: string } | null>(null)
   const [agentOverlaySuspended, setAgentOverlaySuspended] = useState(false)
   const webviewRef = useRef<HTMLElement>(null)
@@ -106,6 +109,62 @@ export default function App() {
     window.api.checkAuth().then(({ authenticated }) => {
       setAuthStatus(authenticated ? "signed-in" : "signed-out")
     })
+  }, [])
+
+  // Hydrate persisted agent session (cwd + messages + history) on startup.
+  // Use functional updates so a slow disk read can't clobber state the user
+  // has already modified while hydration was pending.
+  useEffect(() => {
+    let cancelled = false
+    window.api
+      .getSession()
+      .then((s) => {
+        if (cancelled) return
+        setCwdState((prev) => prev ?? s.cwd)
+        setMessages((prev) =>
+          prev.length > 0 ? prev : ((s.messages as Message[]) ?? [])
+        )
+        setSessionHistory((prev) =>
+          prev.length > 0 ? prev : (s.history ?? [])
+        )
+        if (s.cwd || (s.messages && s.messages.length > 0)) {
+          setAgentEverOpened(true)
+        }
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Persist session whenever cwd / messages / history change. Only skip the
+  // very first render (pre-hydration / pre-interaction) so we don't overwrite
+  // a not-yet-loaded session with an empty default.
+  const hasPersistedRef = useRef(false)
+  useEffect(() => {
+    const shouldPersist =
+      hasPersistedRef.current ||
+      cwd !== null ||
+      messages.length > 0 ||
+      sessionHistory.length > 0
+    if (!shouldPersist) return
+    hasPersistedRef.current = true
+    const timer = window.setTimeout(() => {
+      void window.api.setSession({
+        cwd,
+        messages: messages as unknown[],
+        history: sessionHistory,
+      })
+    }, 150)
+    return () => window.clearTimeout(timer)
+  }, [cwd, messages, sessionHistory])
+
+  const setCwd = useCallback((path: string | null) => {
+    setCwdState(path)
+    if (path === null) {
+      setMessages([])
+      setSessionHistory([])
+    }
   }, [])
 
   useEffect(() => {
@@ -169,6 +228,8 @@ export default function App() {
   useEffect(() => {
     if (section !== "agent") {
       setAgentOverlaySuspended(false)
+    } else {
+      setAgentEverOpened(true)
     }
   }, [section])
 
@@ -433,16 +494,24 @@ export default function App() {
             </div>
           )}
 
-          {/* Agent overlay — sits on top of webview's content area, to the right of the sidebar */}
-          {section === "agent" && !agentOverlaySuspended && (
+          {/* Agent overlay — kept mounted after first open so chat state survives tab switches */}
+          {agentEverOpened && (
             <div
               className="absolute right-0 bottom-0 top-0 z-30 bg-[#0d0d0d]"
-              style={{ left: DESKTOP_RAIL_WIDTH }}
+              style={{
+                left: DESKTOP_RAIL_WIDTH,
+                display:
+                  section === "agent" && !agentOverlaySuspended
+                    ? "block"
+                    : "none",
+              }}
             >
               <AgentSection
                 cwd={cwd}
                 setCwd={setCwd}
                 session={activeSession}
+                messages={messages}
+                setMessages={setMessages}
                 onHistoryUpdate={updateSessionHistory}
               />
             </div>

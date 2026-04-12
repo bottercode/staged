@@ -371,7 +371,7 @@ Open Settings (bottom-left gear icon) → add your provider API key.` : raw
     }
   }
 }
-const BASE_URL = app.isPackaged ? "https://staged-qfza.onrender.com" : "http://localhost:3000";
+const BASE_URL = app.isPackaged ? "https://staged.codula.in" : "http://localhost:3000";
 async function checkSession() {
   try {
     const sess = session.fromPartition("persist:webapp");
@@ -401,6 +401,25 @@ function openBrowserSignIn() {
 }
 const execAsync = promisify(exec);
 const SETTINGS_PATH = join(app.getPath("userData"), "settings.json");
+const SESSION_PATH = join(app.getPath("userData"), "session.json");
+const EMPTY_SESSION = { cwd: null, messages: [], history: [] };
+async function loadSession() {
+  try {
+    const raw = await fs.readFile(SESSION_PATH, "utf-8");
+    const parsed = JSON.parse(raw);
+    return {
+      cwd: typeof parsed.cwd === "string" ? parsed.cwd : null,
+      messages: Array.isArray(parsed.messages) ? parsed.messages : [],
+      history: Array.isArray(parsed.history) ? parsed.history : []
+    };
+  } catch {
+    return { ...EMPTY_SESSION };
+  }
+}
+async function saveSession(session2) {
+  await fs.mkdir(join(app.getPath("userData")), { recursive: true });
+  await fs.writeFile(SESSION_PATH, JSON.stringify(session2), "utf-8");
+}
 const DEFAULT_SETTINGS = {
   modelId: "anthropic:claude-sonnet-4-5-20251001",
   providerApiKeys: {}
@@ -431,6 +450,15 @@ function registerIpcHandlers() {
   ipcMain.handle("settings:get", async () => loadSettings());
   ipcMain.handle("settings:set", async (_e, settings) => {
     await saveSettings(settings);
+    return true;
+  });
+  ipcMain.handle("session:get", async () => loadSession());
+  ipcMain.handle("session:set", async (_e, session2) => {
+    await saveSession(session2);
+    return true;
+  });
+  ipcMain.handle("session:clear", async () => {
+    await saveSession({ ...EMPTY_SESSION });
     return true;
   });
   ipcMain.handle("models:list", () => MODEL_OPTIONS);

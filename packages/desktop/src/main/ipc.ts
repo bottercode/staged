@@ -13,6 +13,34 @@ const execAsync = promisify(exec)
 // ── Settings persistence ──────────────────────────────────────────────────────
 
 const SETTINGS_PATH = join(app.getPath("userData"), "settings.json")
+const SESSION_PATH = join(app.getPath("userData"), "session.json")
+
+type PersistedSession = {
+  cwd: string | null
+  messages: unknown[]
+  history: unknown[]
+}
+
+const EMPTY_SESSION: PersistedSession = { cwd: null, messages: [], history: [] }
+
+async function loadSession(): Promise<PersistedSession> {
+  try {
+    const raw = await fs.readFile(SESSION_PATH, "utf-8")
+    const parsed = JSON.parse(raw) as Partial<PersistedSession>
+    return {
+      cwd: typeof parsed.cwd === "string" ? parsed.cwd : null,
+      messages: Array.isArray(parsed.messages) ? parsed.messages : [],
+      history: Array.isArray(parsed.history) ? parsed.history : [],
+    }
+  } catch {
+    return { ...EMPTY_SESSION }
+  }
+}
+
+async function saveSession(session: PersistedSession): Promise<void> {
+  await fs.mkdir(join(app.getPath("userData")), { recursive: true })
+  await fs.writeFile(SESSION_PATH, JSON.stringify(session), "utf-8")
+}
 
 type Settings = {
   modelId: string
@@ -66,6 +94,17 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle("settings:set", async (_e, settings: Settings) => {
     await saveSettings(settings)
+    return true
+  })
+
+  // Agent session persistence (cwd + messages + history)
+  ipcMain.handle("session:get", async () => loadSession())
+  ipcMain.handle("session:set", async (_e, session: PersistedSession) => {
+    await saveSession(session)
+    return true
+  })
+  ipcMain.handle("session:clear", async () => {
+    await saveSession({ ...EMPTY_SESSION })
     return true
   })
 
