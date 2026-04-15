@@ -200,6 +200,7 @@ export const dmRouter = router({
           userName: users.name,
           userAvatar: users.avatarUrl,
           attachments: messages.attachments,
+          isPinned: messages.isPinned,
         })
         .from(messages)
         .innerJoin(users, eq(messages.userId, users.id))
@@ -212,6 +213,12 @@ export const dmRouter = router({
           id: string
           name: string
           avatarUrl: string | null
+        }>,
+        reactions: [] as Array<{
+          emoji: string
+          count: number
+          reactedByMe: boolean
+          users: Array<{ id: string; name: string }>
         }>,
       }))
     }),

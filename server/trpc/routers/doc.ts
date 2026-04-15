@@ -10,6 +10,7 @@ export const docRouter = router({
       return ctx.db
         .select({
           id: docs.id,
+          parentId: docs.parentId,
           title: docs.title,
           emoji: docs.emoji,
           createdById: docs.createdById,
@@ -29,6 +30,7 @@ export const docRouter = router({
         .select({
           id: docs.id,
           workspaceId: docs.workspaceId,
+          parentId: docs.parentId,
           title: docs.title,
           content: docs.content,
           emoji: docs.emoji,
@@ -44,12 +46,29 @@ export const docRouter = router({
       return doc ?? null
     }),
 
+  listChildren: publicProcedure
+    .input(z.object({ parentId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.db
+        .select({
+          id: docs.id,
+          parentId: docs.parentId,
+          title: docs.title,
+          emoji: docs.emoji,
+          updatedAt: docs.updatedAt,
+        })
+        .from(docs)
+        .where(eq(docs.parentId, input.parentId))
+        .orderBy(desc(docs.updatedAt))
+    }),
+
   create: publicProcedure
     .input(
       z.object({
         workspaceId: z.string().uuid(),
         title: z.string().default("Untitled"),
         createdById: z.string().uuid(),
+        parentId: z.string().uuid().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -59,6 +78,7 @@ export const docRouter = router({
           workspaceId: input.workspaceId,
           title: input.title,
           createdById: input.createdById,
+          parentId: input.parentId ?? null,
         })
         .returning()
 

@@ -22,6 +22,20 @@
       "when": 1775229996587,
       "tag": "0002_glorious_enchantress",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1776095483001,
+      "tag": "0003_eminent_stephen_strange",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1776176625854,
+      "tag": "0004_new_maelstrom",
+      "breakpoints": true
     }
   ]
 }

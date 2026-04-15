@@ -107,7 +107,10 @@ export default function BoardPage() {
   const { data: board } = trpc.board.getById.useQuery({
     id: boardId,
   })
-  const { data: users = [] } = trpc.user.list.useQuery()
+  const { data: users = [] } = trpc.user.list.useQuery(
+    board ? { workspaceId: board.workspaceId } : undefined,
+    { enabled: Boolean(board) }
+  )
   const utils = trpc.useUtils()
   const updateTask = trpc.task.update.useMutation({
     onSuccess: () => utils.board.getById.invalidate({ id: boardId }),

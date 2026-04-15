@@ -246,6 +246,11 @@ export const messages = pgTable("messages", {
     >()
     .notNull()
     .default([]),
+  isPinned: boolean("is_pinned").default(false).notNull(),
+  pinnedAt: timestamp("pinned_at"),
+  pinnedById: uuid("pinned_by_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 })
@@ -269,7 +274,46 @@ export const messagesRelations = relations(messages, ({ one, many }) => ({
     relationName: "thread",
   }),
   replies: many(messages, { relationName: "thread" }),
+  reactions: many(messageReactions),
 }))
+
+// ── Message Reactions ──────────────────────────────────
+export const messageReactions = pgTable(
+  "message_reactions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    emoji: text("emoji").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    uniqUserEmoji: uniqueIndex("message_reactions_unique_idx").on(
+      table.messageId,
+      table.userId,
+      table.emoji
+    ),
+    messageIdx: index("message_reactions_message_idx").on(table.messageId),
+  })
+)
+
+export const messageReactionsRelations = relations(
+  messageReactions,
+  ({ one }) => ({
+    message: one(messages, {
+      fields: [messageReactions.messageId],
+      references: [messages.id],
+    }),
+    user: one(users, {
+      fields: [messageReactions.userId],
+      references: [users.id],
+    }),
+  })
+)
 
 // ── Direct Message Rooms ───────────────────────────────
 export const directMessageRooms = pgTable("direct_message_rooms", {
@@ -504,6 +548,7 @@ export const docs = pgTable("docs", {
   workspaceId: uuid("workspace_id")
     .notNull()
     .references(() => workspaces.id, { onDelete: "cascade" }),
+  parentId: uuid("parent_id"),
   title: text("title").notNull().default("Untitled"),
   content: text("content"),
   emoji: text("emoji"),

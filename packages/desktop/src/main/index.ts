@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain } from "electron"
+import { app, BrowserWindow, shell, ipcMain, session } from "electron"
 import { join } from "path"
 import { registerIpcHandlers } from "./ipc"
 import { BASE_URL, exchangeDesktopCode } from "./auth"
@@ -162,6 +162,13 @@ app.on("web-contents-created", (_event, contents) => {
 })
 
 app.whenReady().then(() => {
+  // Brand the webview partition with a UA suffix so the web app can detect
+  // it's running inside the desktop shell before any React renders.
+  const webappSession = session.fromPartition("persist:webapp")
+  webappSession.setUserAgent(
+    webappSession.getUserAgent() + " StagedDesktop/" + CURRENT_VERSION
+  )
+
   registerIpcHandlers()
 
   ipcMain.handle("update:check", async () => checkForUpdate())

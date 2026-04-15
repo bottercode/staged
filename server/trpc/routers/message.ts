@@ -1,8 +1,70 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { router, publicProcedure } from "../trpc"
-import { messages, users, directMessageMembers } from "../../db/schema"
+import {
+  messages,
+  users,
+  directMessageMembers,
+  messageReactions,
+} from "../../db/schema"
 import { eq, and, isNull, desc, asc, sql, count, inArray } from "drizzle-orm"
+
+type ReactionSummary = {
+  emoji: string
+  count: number
+  reactedByMe: boolean
+  users: Array<{ id: string; name: string }>
+}
+
+type Db = {
+  select: (...args: unknown[]) => {
+    from: (table: unknown) => {
+      innerJoin: (
+        other: unknown,
+        on: unknown
+      ) => {
+        where: (pred: unknown) => Promise<unknown[]>
+      }
+    }
+  }
+}
+
+async function loadReactionsFor(
+  db: unknown,
+  messageIds: string[],
+  currentUserId: string | null
+) {
+  const map = new Map<string, ReactionSummary[]>()
+  if (messageIds.length === 0) return map
+  const rows = (await (db as Db)
+    .select({
+      messageId: messageReactions.messageId,
+      emoji: messageReactions.emoji,
+      userId: messageReactions.userId,
+      userName: users.name,
+    })
+    .from(messageReactions)
+    .innerJoin(users, eq(messageReactions.userId, users.id))
+    .where(inArray(messageReactions.messageId, messageIds))) as Array<{
+    messageId: string
+    emoji: string
+    userId: string
+    userName: string
+  }>
+  for (const row of rows) {
+    const list = map.get(row.messageId) ?? []
+    let entry = list.find((r) => r.emoji === row.emoji)
+    if (!entry) {
+      entry = { emoji: row.emoji, count: 0, reactedByMe: false, users: [] }
+      list.push(entry)
+    }
+    entry.count += 1
+    if (row.userId === currentUserId) entry.reactedByMe = true
+    entry.users.push({ id: row.userId, name: row.userName })
+    map.set(row.messageId, list)
+  }
+  return map
+}
 
 let messagesMigrated = false
 async function ensureMessageAttachmentsColumn(db: {
@@ -88,6 +150,7 @@ export const messageRouter = router({
           userName: users.name,
           userAvatar: users.avatarUrl,
           attachments: messages.attachments,
+          isPinned: messages.isPinned,
         })
         .from(messages)
         .innerJoin(users, eq(messages.userId, users.id))
@@ -134,9 +197,16 @@ export const messageRouter = router({
         }
       }
 
+      const reactionsByMessage = await loadReactionsFor(
+        ctx.db,
+        parentIds,
+        ctx.userId ?? null
+      )
+
       return rows.map((row) => ({
         ...row,
         replyPreviewUsers: replyPreviewByParent.get(row.id) ?? [],
+        reactions: reactionsByMessage.get(row.id) ?? [],
       }))
     }),
 
@@ -223,7 +293,6 @@ export const messageRouter = router({
     .input(z.object({ parentId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       await ensureMessageAttachmentsColumn(ctx.db)
-      // Get parent message
       const [parent] = await ctx.db
         .select({
           id: messages.id,
@@ -236,12 +305,12 @@ export const messageRouter = router({
           userName: users.name,
           userAvatar: users.avatarUrl,
           attachments: messages.attachments,
+          isPinned: messages.isPinned,
         })
         .from(messages)
         .innerJoin(users, eq(messages.userId, users.id))
         .where(eq(messages.id, input.parentId))
 
-      // Get replies
       const replies = await ctx.db
         .select({
           id: messages.id,
@@ -254,11 +323,22 @@ export const messageRouter = router({
           userName: users.name,
           userAvatar: users.avatarUrl,
           attachments: messages.attachments,
+          isPinned: messages.isPinned,
         })
         .from(messages)
         .innerJoin(users, eq(messages.userId, users.id))
         .where(eq(messages.parentId, input.parentId))
         .orderBy(asc(messages.createdAt))
+
+      const allIds = [
+        ...(parent ? [parent.id] : []),
+        ...replies.map((r) => r.id),
+      ]
+      const reactionsByMessage = await loadReactionsFor(
+        ctx.db,
+        allIds,
+        ctx.userId ?? null
+      )
 
       return {
         parent: parent
@@ -269,6 +349,7 @@ export const messageRouter = router({
                 name: string
                 avatarUrl: string | null
               }>,
+              reactions: reactionsByMessage.get(parent.id) ?? [],
             }
           : undefined,
         replies: replies.map((r) => ({
@@ -278,8 +359,172 @@ export const messageRouter = router({
             name: string
             avatarUrl: string | null
           }>,
+          reactions: reactionsByMessage.get(r.id) ?? [],
         })),
       }
+    }),
+
+  toggleReaction: publicProcedure
+    .input(
+      z.object({
+        messageId: z.string().uuid(),
+        emoji: z.string().min(1).max(32),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.userId) {
+        throw new TRPCError({ code: "UNAUTHORIZED" })
+      }
+      const [existing] = await ctx.db
+        .select({ id: messageReactions.id })
+        .from(messageReactions)
+        .where(
+          and(
+            eq(messageReactions.messageId, input.messageId),
+            eq(messageReactions.userId, ctx.userId),
+            eq(messageReactions.emoji, input.emoji)
+          )
+        )
+        .limit(1)
+
+      if (existing) {
+        await ctx.db
+          .delete(messageReactions)
+          .where(eq(messageReactions.id, existing.id))
+        return { removed: true }
+      }
+      await ctx.db.insert(messageReactions).values({
+        messageId: input.messageId,
+        userId: ctx.userId,
+        emoji: input.emoji,
+      })
+      return { removed: false }
+    }),
+
+  togglePin: publicProcedure
+    .input(z.object({ messageId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.userId) {
+        throw new TRPCError({ code: "UNAUTHORIZED" })
+      }
+      const [target] = await ctx.db
+        .select({ id: messages.id, isPinned: messages.isPinned })
+        .from(messages)
+        .where(eq(messages.id, input.messageId))
+        .limit(1)
+      if (!target) throw new TRPCError({ code: "NOT_FOUND" })
+      const next = !target.isPinned
+      await ctx.db
+        .update(messages)
+        .set({
+          isPinned: next,
+          pinnedAt: next ? new Date() : null,
+          pinnedById: next ? ctx.userId : null,
+        })
+        .where(eq(messages.id, input.messageId))
+      return { isPinned: next }
+    }),
+
+  listPinned: publicProcedure
+    .input(z.object({ channelId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.db
+        .select({
+          id: messages.id,
+          content: messages.content,
+          createdAt: messages.createdAt,
+          pinnedAt: messages.pinnedAt,
+          attachments: messages.attachments,
+          userId: messages.userId,
+          userName: users.name,
+          userAvatar: users.avatarUrl,
+        })
+        .from(messages)
+        .innerJoin(users, eq(messages.userId, users.id))
+        .where(
+          and(
+            eq(messages.channelId, input.channelId),
+            eq(messages.isPinned, true)
+          )
+        )
+        .orderBy(desc(messages.pinnedAt))
+    }),
+
+  listFiles: publicProcedure
+    .input(z.object({ channelId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const rows = await ctx.db
+        .select({
+          id: messages.id,
+          createdAt: messages.createdAt,
+          attachments: messages.attachments,
+          userName: users.name,
+        })
+        .from(messages)
+        .innerJoin(users, eq(messages.userId, users.id))
+        .where(eq(messages.channelId, input.channelId))
+        .orderBy(desc(messages.createdAt))
+
+      const files: Array<{
+        messageId: string
+        createdAt: Date
+        userName: string
+        url: string
+        name: string
+        size: number
+        contentType: string
+      }> = []
+      for (const row of rows) {
+        for (const att of row.attachments ?? []) {
+          files.push({
+            messageId: row.id,
+            createdAt: row.createdAt,
+            userName: row.userName,
+            ...att,
+          })
+        }
+      }
+      return files
+    }),
+
+  listLinks: publicProcedure
+    .input(z.object({ channelId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const rows = await ctx.db
+        .select({
+          id: messages.id,
+          content: messages.content,
+          createdAt: messages.createdAt,
+          userName: users.name,
+        })
+        .from(messages)
+        .innerJoin(users, eq(messages.userId, users.id))
+        .where(eq(messages.channelId, input.channelId))
+        .orderBy(desc(messages.createdAt))
+
+      const urlRegex = /(https?:\/\/[^\s<>"']+)/g
+      const links: Array<{
+        messageId: string
+        createdAt: Date
+        userName: string
+        url: string
+      }> = []
+      const seen = new Set<string>()
+      for (const row of rows) {
+        const matches = row.content.matchAll(urlRegex)
+        for (const match of matches) {
+          const url = match[1]
+          if (seen.has(row.id + url)) continue
+          seen.add(row.id + url)
+          links.push({
+            messageId: row.id,
+            createdAt: row.createdAt,
+            userName: row.userName,
+            url,
+          })
+        }
+      }
+      return links
     }),
 
   delete: publicProcedure

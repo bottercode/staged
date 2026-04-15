@@ -198,7 +198,7 @@ export function DocEditor({
           isActive={editor.isActive("codeBlock")}
           title="Code block"
         >
-          <span className="text-[10px] font-mono font-bold">{"{}"}</span>
+          <span className="font-mono text-[10px] font-bold">{"{}"}</span>
         </ToolbarButton>
 
         <ToolbarDivider />
@@ -218,10 +218,8 @@ export function DocEditor({
       </div>
 
       {/* Editor */}
-      <div className="flex-1 overflow-y-auto px-6 py-4">
-        <div className="mx-auto max-w-3xl">
-          <EditorContent editor={editor} />
-        </div>
+      <div className="flex-1 py-4">
+        <EditorContent editor={editor} />
       </div>
     </div>
   )

@@ -14,15 +14,32 @@ import {
   Download,
   FileText,
   MoreHorizontal,
+  Pin,
+  PinOff,
+  SmilePlus,
   SquareKanban,
   Trash2,
 } from "lucide-react"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import EmojiPicker from "emoji-picker-react"
+import { cn } from "@/lib/utils"
 
 export type Attachment = {
   url: string
   name: string
   size: number
   contentType: string
+}
+
+export type Reaction = {
+  emoji: string
+  count: number
+  reactedByMe: boolean
+  users: Array<{ id: string; name: string }>
 }
 
 export type Message = {
@@ -41,6 +58,8 @@ export type Message = {
     name: string
     avatarUrl: string | null
   }>
+  reactions: Reaction[]
+  isPinned: boolean
 }
 
 function formatBytes(bytes: number) {
@@ -122,23 +141,42 @@ export function MessageList({
   onCreateTask,
   currentUserId,
   workspaceId,
+  channelId,
   onDeleteMessage,
   showThreadCount = true,
+  allowPin = true,
 }: {
   messages: Message[]
   onOpenThread?: (messageId: string) => void
   onCreateTask?: (message: Message) => void
   currentUserId?: string
   workspaceId?: string
+  channelId?: string
   onDeleteMessage?: (message: Message) => void
   showThreadCount?: boolean
+  allowPin?: boolean
 }) {
   const router = useRouter()
-  const { data: users } = trpc.user.list.useQuery()
+  const utils = trpc.useUtils()
+  const { data: users } = trpc.user.list.useQuery(
+    workspaceId ? { workspaceId } : undefined
+  )
   const dmCreate = trpc.dm.create.useMutation({
     onSuccess: (result) => {
       router.push(`/workspace/dm/${result.id}`)
     },
+  })
+  const invalidateMessages = () => {
+    if (channelId) utils.message.list.invalidate({ channelId })
+    utils.message.thread.invalidate()
+    utils.dm.messages.invalidate()
+    if (channelId) utils.message.listPinned.invalidate({ channelId })
+  }
+  const toggleReaction = trpc.message.toggleReaction.useMutation({
+    onSuccess: invalidateMessages,
+  })
+  const togglePin = trpc.message.togglePin.useMutation({
+    onSuccess: invalidateMessages,
   })
   const bottomRef = useRef<HTMLDivElement>(null)
   const prevLengthRef = useRef(0)
@@ -232,12 +270,14 @@ export function MessageList({
   })
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto px-4 py-2">
+    <div className="flex flex-1 flex-col overflow-y-auto px-5 py-4">
       {messagesWithDate.length === 0 && (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-          <div className="text-4xl">👋</div>
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/60 text-3xl">
+            👋
+          </div>
           <div className="space-y-1">
-            <p className="text-sm font-semibold text-foreground">
+            <p className="text-[15px] font-semibold tracking-tight text-foreground">
               No messages yet
             </p>
             <p className="text-xs text-muted-foreground">
@@ -251,16 +291,16 @@ export function MessageList({
           return (
             <div
               key={msg.id}
-              className="my-1 flex items-center gap-2 text-xs text-muted-foreground"
+              className="my-2 flex items-center gap-3 text-xs text-muted-foreground"
             >
-              <div className="h-px flex-1 bg-border" />
+              <div className="h-px flex-1 bg-border/60" />
               <span>
                 <span className="font-medium text-foreground">
                   {msg.userName}
                 </span>{" "}
                 joined the workspace 👋
               </span>
-              <div className="h-px flex-1 bg-border" />
+              <div className="h-px flex-1 bg-border/60" />
             </div>
           )
         }
@@ -268,26 +308,37 @@ export function MessageList({
         return (
           <div key={msg.id}>
             {showDate && (
-              <div className="my-4 flex items-center gap-3">
-                <div className="h-px flex-1 bg-border" />
-                <span className="text-xs font-medium text-muted-foreground">
+              <div className="my-5 flex items-center gap-3">
+                <div className="h-px flex-1 bg-border/60" />
+                <span className="rounded-full border border-border/60 bg-background px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
                   {msgDate}
                 </span>
-                <div className="h-px flex-1 bg-border" />
+                <div className="h-px flex-1 bg-border/60" />
               </div>
             )}
             <div
-              className="group -mx-2 flex cursor-pointer gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-accent/50"
+              className={cn(
+                "group relative -mx-2 flex cursor-pointer gap-3 rounded-xl px-3 py-2 transition-all hover:bg-muted/40",
+                msg.isPinned && "bg-amber-500/[0.04] ring-1 ring-amber-500/15"
+              )}
               onClick={() => onOpenThread?.(msg.id)}
             >
-              <Avatar className="mt-0.5 h-8 w-8 flex-shrink-0">
+              <Avatar className="mt-0.5 h-9 w-9 flex-shrink-0 ring-1 ring-border/60">
                 <AvatarImage src={msg.userAvatar ?? undefined} />
                 <AvatarFallback>{msg.userName[0]}</AvatarFallback>
               </Avatar>
               <div className="min-w-0 flex-1">
+                {msg.isPinned && (
+                  <div className="mb-0.5 flex items-center gap-1 text-[10px] font-semibold tracking-wide text-amber-600 uppercase dark:text-amber-400">
+                    <Pin className="h-3 w-3" />
+                    Pinned
+                  </div>
+                )}
                 <div className="flex items-baseline gap-2">
-                  <span className="text-sm font-semibold">{msg.userName}</span>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-[13.5px] font-semibold tracking-tight">
+                    {msg.userName}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">
                     {formatTime(msg.createdAt)}
                   </span>
                 </div>
@@ -300,6 +351,33 @@ export function MessageList({
                   <div className="mt-1.5 flex flex-col gap-2">
                     {(msg.attachments ?? []).map((att, i) => (
                       <AttachmentPreview key={i} attachment={att} />
+                    ))}
+                  </div>
+                )}
+                {(msg.reactions ?? []).length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {msg.reactions.map((reaction) => (
+                      <button
+                        key={reaction.emoji}
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          toggleReaction.mutate({
+                            messageId: msg.id,
+                            emoji: reaction.emoji,
+                          })
+                        }}
+                        title={reaction.users.map((u) => u.name).join(", ")}
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors",
+                          reaction.reactedByMe
+                            ? "border-primary/40 bg-primary/10 text-primary"
+                            : "border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/70"
+                        )}
+                      >
+                        <span>{reaction.emoji}</span>
+                        <span className="tabular-nums">{reaction.count}</span>
+                      </button>
                     ))}
                   </div>
                 )}
@@ -339,40 +417,92 @@ export function MessageList({
                 )}
               </div>
 
-              {/* Action menu */}
-              {(onCreateTask ||
-                (onDeleteMessage && currentUserId === msg.userId)) && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent"
+              {/* Action toolbar */}
+              <div
+                className="absolute -top-3 right-3 flex items-center gap-0.5 rounded-lg border border-border/60 bg-popover/95 p-0.5 opacity-0 shadow-md backdrop-blur transition-opacity group-hover:opacity-100"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {currentUserId && (
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent"
+                        title="Add reaction"
+                      >
+                        <SmilePlus className="h-4 w-4 text-muted-foreground" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      align="end"
+                      className="w-auto border-0 p-0"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    align="end"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {onCreateTask ? (
-                      <DropdownMenuItem onClick={() => onCreateTask(msg)}>
-                        <SquareKanban className="mr-2 h-4 w-4" />
-                        Create task
-                      </DropdownMenuItem>
-                    ) : null}
-                    {onDeleteMessage && currentUserId === msg.userId ? (
-                      <DropdownMenuItem
-                        onClick={() => onDeleteMessage(msg)}
-                        className="text-destructive focus:text-destructive"
+                      <EmojiPicker
+                        onEmojiClick={(emojiData) => {
+                          toggleReaction.mutate({
+                            messageId: msg.id,
+                            emoji: emojiData.emoji,
+                          })
+                        }}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                )}
+                {(onCreateTask ||
+                  (allowPin && channelId && currentUserId) ||
+                  (onDeleteMessage && currentUserId === msg.userId)) && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent"
+                        title="More actions"
                       >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Delete
-                      </DropdownMenuItem>
-                    ) : null}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
+                        <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="end"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {onCreateTask ? (
+                        <DropdownMenuItem onClick={() => onCreateTask(msg)}>
+                          <SquareKanban className="mr-2 h-4 w-4" />
+                          Create task
+                        </DropdownMenuItem>
+                      ) : null}
+                      {allowPin && channelId && currentUserId ? (
+                        <DropdownMenuItem
+                          onClick={() =>
+                            togglePin.mutate({ messageId: msg.id })
+                          }
+                        >
+                          {msg.isPinned ? (
+                            <>
+                              <PinOff className="mr-2 h-4 w-4" />
+                              Unpin message
+                            </>
+                          ) : (
+                            <>
+                              <Pin className="mr-2 h-4 w-4" />
+                              Pin message
+                            </>
+                          )}
+                        </DropdownMenuItem>
+                      ) : null}
+                      {onDeleteMessage && currentUserId === msg.userId ? (
+                        <DropdownMenuItem
+                          onClick={() => onDeleteMessage(msg)}
+                          className="text-destructive focus:text-destructive"
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Delete
+                        </DropdownMenuItem>
+                      ) : null}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </div>
             </div>
           </div>
         )

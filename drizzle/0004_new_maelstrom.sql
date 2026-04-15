@@ -1,0 +1,1 @@
+ALTER TABLE "docs" ADD COLUMN "parent_id" uuid;

@@ -806,12 +806,12 @@ function LocalFolderPicker({
 const RELEASE_BASE =
   "https://github.com/bottercode/staged/releases/latest/download"
 
-function ConnectScreen({ onSetPath }: { onSetPath: (path: string) => void }) {
+function ConnectScreen({
+  onSetPath: _onSetPath,
+}: {
+  onSetPath: (path: string) => void
+}) {
   const [platform, setPlatform] = useState<"mac" | "win" | "linux" | null>(null)
-  const isLocal =
-    typeof window !== "undefined" &&
-    (window.location.hostname === "localhost" ||
-      window.location.hostname === "127.0.0.1")
 
   useEffect(() => {
     const ua = navigator.userAgent
@@ -824,10 +824,6 @@ function ConnectScreen({ onSetPath }: { onSetPath: (path: string) => void }) {
     platform === "win"
       ? `${RELEASE_BASE}/Staged-win.exe`
       : `${RELEASE_BASE}/Staged-linux.AppImage`
-
-  if (isLocal) {
-    return <LocalFolderPicker onSetPath={onSetPath} />
-  }
 
   return (
     <div className="flex h-full w-full flex-col items-center justify-center bg-background px-8">
@@ -873,7 +869,50 @@ function ConnectScreen({ onSetPath }: { onSetPath: (path: string) => void }) {
 
 // ── Main Agent Panel ─────────────────────────────────────
 
-export function AgentPanel() {
+function detectDesktopClient() {
+  if (typeof window === "undefined") return false
+  if (/Electron|StagedDesktop/i.test(navigator.userAgent)) return true
+  if (window.location.search.includes("client=desktop")) return true
+  try {
+    if (window.localStorage.getItem("staged-client") === "desktop") return true
+    if (window.sessionStorage.getItem("staged-client") === "desktop")
+      return true
+  } catch {
+    // ignore
+  }
+  return false
+}
+
+export function AgentPanel({
+  initialIsDesktop = false,
+}: {
+  initialIsDesktop?: boolean
+}) {
+  // Start with the server's UA-based decision (matches SSR output, so no
+  // hydration mismatch). If the client-side check disagrees — e.g. the user
+  // agent was only branded after first request, or a localStorage marker was
+  // set later — upgrade once we're past hydration.
+  const [isDesktop, setIsDesktop] = useState(initialIsDesktop)
+
+  if (
+    !isDesktop &&
+    typeof window !== "undefined" &&
+    detectDesktopClient() &&
+    !initialIsDesktop
+  ) {
+    // Safe to call setState inline during render: the condition is idempotent
+    // and only flips once, so React will re-render with the correct value.
+    setIsDesktop(true)
+  }
+
+  if (!isDesktop) {
+    return <ConnectScreen onSetPath={() => {}} />
+  }
+
+  return <AgentPanelDesktop />
+}
+
+function AgentPanelDesktop() {
   const createSession = (name: string): AgentSession => ({
     id: createClientId(),
     name,

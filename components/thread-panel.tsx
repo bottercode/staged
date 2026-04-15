@@ -21,7 +21,9 @@ export function ThreadPanel({
 }) {
   const { currentUser } = useCurrentUser()
   const utils = trpc.useUtils()
-  const { data: users } = trpc.user.list.useQuery()
+  const { data: users } = trpc.user.list.useQuery(
+    workspaceId ? { workspaceId } : undefined
+  )
 
   const { data: thread } = trpc.message.thread.useQuery(
     { parentId },
@@ -44,7 +46,7 @@ export function ThreadPanel({
   const allMessages = thread?.replies ?? []
 
   return (
-    <div className="flex h-full min-h-0 w-[420px] flex-shrink-0 flex-col border-l">
+    <div className="flex h-full min-h-0 w-[340px] flex-shrink-0 flex-col border-l xl:w-[420px]">
       {/* Header */}
       <div className="flex h-12 items-center justify-between border-b px-4">
         <span className="text-sm font-semibold">Thread</span>

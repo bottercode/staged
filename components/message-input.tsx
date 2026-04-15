@@ -340,74 +340,106 @@ export function MessageInput({
   }
 
   const insertMention = (name: string) => {
+    const editor = editorRef.current
+    const selection = window.getSelection()
+    if (editor && selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0)
+      if (
+        editor.contains(range.endContainer) &&
+        range.endContainer.nodeType === Node.TEXT_NODE
+      ) {
+        const textNode = range.endContainer as Text
+        const text = textNode.textContent || ""
+        const before = text.slice(0, range.endOffset)
+        const atIndex = before.lastIndexOf("@")
+        if (atIndex >= 0) {
+          const deleteRange = document.createRange()
+          deleteRange.setStart(textNode, atIndex)
+          deleteRange.setEnd(textNode, range.endOffset)
+          selection.removeAllRanges()
+          selection.addRange(deleteRange)
+          exec("delete")
+        }
+      }
+    }
     insertTextAtCursor(`@${name} `)
     setActiveMentionQuery(null)
   }
 
+  const handleDiscard = () => {
+    setHtml("")
+    setPlainText("")
+    setActiveMentionQuery(null)
+    setQueue([])
+    if (editorRef.current) {
+      editorRef.current.innerHTML = ""
+    }
+  }
+
+  const hasContent = plainText.trim().length > 0 || queue.length > 0
+
   return (
-    <div className={compact ? "border-t p-2" : "border-t p-4"}>
-      <div className="relative w-full rounded-xl border bg-muted/50 p-2">
+    <div className={compact ? "p-2" : "bg-background px-5 pt-2 pb-4"}>
+      <div className="relative w-full rounded-2xl border border-border/60 bg-card/60 shadow-[0_1px_0_0_rgba(0,0,0,0.02),0_8px_24px_-12px_rgba(0,0,0,0.12)] backdrop-blur transition-all focus-within:border-border focus-within:bg-card focus-within:shadow-[0_1px_0_0_rgba(0,0,0,0.02),0_12px_32px_-12px_rgba(0,0,0,0.18)]">
         {!compact && (
-          <div className="mb-2 flex items-center gap-1 border-b pb-2">
+          <div className="flex items-center gap-0.5 border-b border-border/50 px-2.5 py-1.5">
             <Button
               size="icon"
               variant="ghost"
               className={cn(
-                "h-8 w-8",
-                formatState.bold && "border border-primary/40 bg-primary/10"
+                "h-7 w-7 rounded-md text-muted-foreground hover:text-foreground",
+                formatState.bold && "bg-muted text-foreground"
               )}
               onMouseDown={keepSelection}
               onClick={() => applyCommand("bold")}
             >
-              <Bold className="h-4 w-4" />
+              <Bold className="h-3.5 w-3.5" />
             </Button>
             <Button
               size="icon"
               variant="ghost"
               className={cn(
-                "h-8 w-8",
-                formatState.italic && "border border-primary/40 bg-primary/10"
+                "h-7 w-7 rounded-md text-muted-foreground hover:text-foreground",
+                formatState.italic && "bg-muted text-foreground"
               )}
               onMouseDown={keepSelection}
               onClick={() => applyCommand("italic")}
             >
-              <Italic className="h-4 w-4" />
+              <Italic className="h-3.5 w-3.5" />
             </Button>
             <Button
               size="icon"
               variant="ghost"
               className={cn(
-                "h-8 w-8",
-                formatState.underline &&
-                  "border border-primary/40 bg-primary/10"
+                "h-7 w-7 rounded-md text-muted-foreground hover:text-foreground",
+                formatState.underline && "bg-muted text-foreground"
               )}
               onMouseDown={keepSelection}
               onClick={() => applyCommand("underline")}
             >
-              <Underline className="h-4 w-4" />
+              <Underline className="h-3.5 w-3.5" />
             </Button>
             <Button
               size="icon"
               variant="ghost"
               className={cn(
-                "h-8 w-8",
-                formatState.strikeThrough &&
-                  "border border-primary/40 bg-primary/10"
+                "h-7 w-7 rounded-md text-muted-foreground hover:text-foreground",
+                formatState.strikeThrough && "bg-muted text-foreground"
               )}
               onMouseDown={keepSelection}
               onClick={() => applyCommand("strikeThrough")}
             >
-              <Strikethrough className="h-4 w-4" />
+              <Strikethrough className="h-3.5 w-3.5" />
             </Button>
           </div>
         )}
 
         {queue.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-2 border-b pb-2">
+          <div className="flex flex-wrap gap-2 border-b border-border/50 px-3 py-2">
             {queue.map((q, i) => (
               <div
                 key={i}
-                className="relative flex items-center gap-2 rounded-lg border bg-muted/40 px-2 py-1.5"
+                className="relative flex items-center gap-2 rounded-lg border border-border/60 bg-background/60 px-2 py-1.5"
               >
                 {q.previewUrl ? (
                   <img
@@ -442,7 +474,7 @@ export function MessageInput({
           </div>
         )}
 
-        <div className="relative">
+        <div className="relative px-3.5 pt-2.5 pb-1">
           <div
             ref={editorRef}
             contentEditable={!disabled}
@@ -455,8 +487,10 @@ export function MessageInput({
               }
             }}
             className={cn(
-              "max-h-40 w-full overflow-y-auto rounded bg-transparent py-1 break-words whitespace-pre-wrap outline-none",
-              compact ? "min-h-[24px] text-sm" : "min-h-[36px] text-base",
+              "max-h-40 w-full overflow-y-auto bg-transparent break-words whitespace-pre-wrap outline-none",
+              compact
+                ? "min-h-[22px] text-[13px]"
+                : "min-h-[40px] text-[14px] leading-relaxed",
               disabled && "pointer-events-none opacity-60"
             )}
             data-placeholder={placeholder}
@@ -465,8 +499,8 @@ export function MessageInput({
           {!plainText && (
             <div
               className={cn(
-                "pointer-events-none absolute top-1 left-0 text-muted-foreground",
-                compact ? "text-sm" : "text-base"
+                "pointer-events-none absolute top-2.5 left-3.5 text-muted-foreground/70",
+                compact ? "text-[13px]" : "text-[14px]"
               )}
             >
               {placeholder}
@@ -474,14 +508,14 @@ export function MessageInput({
           )}
 
           {activeMentionQuery != null && filteredMentionUsers.length > 0 && (
-            <div className="absolute bottom-full left-0 z-20 mb-2 max-h-56 w-64 overflow-y-auto rounded-md border bg-popover p-1 shadow-lg">
+            <div className="absolute bottom-full left-3 z-20 mb-2 max-h-56 w-64 overflow-y-auto rounded-xl border border-border/60 bg-popover p-1 shadow-xl">
               {filteredMentionUsers.map((user) => (
                 <button
                   key={user.id}
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => insertMention(user.name)}
-                  className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent focus:bg-accent focus:outline-none"
+                  className="w-full rounded-lg px-2 py-1.5 text-left text-[13px] hover:bg-accent focus:bg-accent focus:outline-none"
                 >
                   @{user.name}
                 </button>
@@ -492,14 +526,18 @@ export function MessageInput({
 
         <div
           className={cn(
-            "mt-2 flex items-center gap-1 border-t pt-2",
-            compact && "mt-1"
+            "flex items-center gap-0.5 px-2.5 py-1.5",
+            compact && "py-1"
           )}
         >
           <Popover>
             <PopoverTrigger asChild>
-              <Button size="icon" variant="ghost" className="h-8 w-8">
-                <Smile className="h-4 w-4" />
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground"
+              >
+                <Smile className="h-3.5 w-3.5" />
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto border-0 bg-transparent p-0">
@@ -513,28 +551,27 @@ export function MessageInput({
           <Button
             size="icon"
             variant="ghost"
-            className="h-8 w-8"
+            className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground"
             onClick={() => insertTextAtCursor("@")}
           >
-            <AtSign className="h-4 w-4" />
+            <AtSign className="h-3.5 w-3.5" />
           </Button>
-          <span className="mx-1 h-5 w-px bg-border" />
           <Button
             size="icon"
             variant="ghost"
-            className="h-8 w-8"
+            className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground"
             onClick={() => insertTextAtCursor("/")}
           >
-            <Slash className="h-4 w-4" />
+            <Slash className="h-3.5 w-3.5" />
           </Button>
           <Button
             size="icon"
             variant="ghost"
-            className="h-8 w-8"
+            className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground"
             onClick={() => fileInputRef.current?.click()}
             disabled={disabled}
           >
-            <Paperclip className="h-4 w-4" />
+            <Paperclip className="h-3.5 w-3.5" />
           </Button>
           <input
             ref={fileInputRef}
@@ -543,18 +580,27 @@ export function MessageInput({
             className="hidden"
             onChange={(e) => addFiles(e.target.files)}
           />
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-1.5">
+            {hasContent && (
+              <Button
+                variant="ghost"
+                onClick={handleDiscard}
+                className="h-7 rounded-md px-3 text-[12px] font-medium text-muted-foreground hover:text-foreground"
+              >
+                Discard
+              </Button>
+            )}
             <Button
-              size="icon"
-              className="h-8 w-8"
               onClick={handleSend}
               disabled={
                 disabled ||
                 queue.some((q) => q.uploading) ||
                 (!plainText.trim() && queue.length === 0)
               }
+              className="h-7 rounded-md px-3.5 text-[12px] font-semibold shadow-sm"
             >
-              <SendHorizonal className="h-4 w-4" />
+              <SendHorizonal className="mr-1 h-3 w-3" />
+              Send
             </Button>
           </div>
         </div>

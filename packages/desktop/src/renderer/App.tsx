@@ -196,6 +196,17 @@ export default function App() {
     const onStart = () => setWebviewLoading(true)
     const onStop = () => setWebviewLoading(false)
 
+    // Mark the webview as a desktop client so the web app can branch on it.
+    // localStorage persists across reloads and SPA navigations.
+    const onDomReady = () => {
+      // @ts-expect-error webview method
+      void el
+        .executeJavaScript(
+          `try { localStorage.setItem("staged-client", "desktop") } catch {}`
+        )
+        .catch(() => undefined)
+    }
+
     const onNavigateInPage = (e: Event) => {
       const url = (e as CustomEvent & { url: string }).url
       if (!url) return
@@ -209,6 +220,7 @@ export default function App() {
     el.addEventListener("did-start-loading", onStart)
     el.addEventListener("did-stop-loading", onStop)
     el.addEventListener("did-fail-load", onStop)
+    el.addEventListener("dom-ready", onDomReady)
     el.addEventListener("did-navigate-in-page", onNavigateInPage)
     el.addEventListener("did-navigate", onNavigateInPage)
 
@@ -216,6 +228,7 @@ export default function App() {
       el.removeEventListener("did-start-loading", onStart)
       el.removeEventListener("did-stop-loading", onStop)
       el.removeEventListener("did-fail-load", onStop)
+      el.removeEventListener("dom-ready", onDomReady)
       el.removeEventListener("did-navigate-in-page", onNavigateInPage)
       el.removeEventListener("did-navigate", onNavigateInPage)
     }
@@ -467,8 +480,9 @@ export default function App() {
           {/* @ts-expect-error webview is Electron-specific */}
           <webview
             ref={webviewRef}
-            src={`${BASE_URL}/workspace`}
+            src={`${BASE_URL}/workspace?client=desktop`}
             partition="persist:webapp"
+            useragent={`${navigator.userAgent} StagedDesktop`}
             className="z-0"
             style={{ width: "100%", height: "100%", display: "flex" }}
           />

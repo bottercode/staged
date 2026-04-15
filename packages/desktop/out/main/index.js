@@ -644,6 +644,10 @@ app.on("web-contents-created", (_event, contents) => {
   });
 });
 app.whenReady().then(() => {
+  const webappSession = session.fromPartition("persist:webapp");
+  webappSession.setUserAgent(
+    webappSession.getUserAgent() + " StagedDesktop/" + CURRENT_VERSION
+  );
   registerIpcHandlers();
   ipcMain.handle("update:check", async () => checkForUpdate());
   ipcMain.handle("update:download", (_e, url) => {

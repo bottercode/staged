@@ -24,6 +24,7 @@ import {
   Tag,
   UserRound,
 } from "lucide-react"
+import { useRouter } from "next/navigation"
 import { trpc } from "@/lib/trpc/client"
 import { useCurrentUser } from "@/lib/user-context"
 import { Button } from "@/components/ui/button"
@@ -70,6 +71,7 @@ function formatShortDate(date: Date) {
 
 export default function PortalManagePage() {
   const params = useParams<{ portalId: string }>()
+  const router = useRouter()
   const portalId = params?.portalId ?? ""
   const { currentUser } = useCurrentUser()
   const [newUpdate, setNewUpdate] = useState("")
@@ -183,25 +185,33 @@ export default function PortalManagePage() {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
-      {/* Header */}
-      <div className="flex h-12 items-center gap-2 border-b px-6">
-        <Globe className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm font-semibold">{portal.name}</span>
-        <span
-          className={cn(
-            "rounded-full px-2 py-0.5 text-[10px] font-medium",
-            portal.status === "active"
-              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
-              : "bg-muted text-muted-foreground"
-          )}
-        >
-          {portal.status}
-        </span>
-        <div className="ml-auto flex items-center gap-2">
+      {/* Breadcrumb header */}
+      <div className="flex h-12 items-center justify-between border-b border-border/60 px-6">
+        <div className="flex items-center gap-1.5 text-[13px]">
+          <button
+            onClick={() => router.push("/workspace/portals")}
+            className="text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Client Portals
+          </button>
+          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/60" />
+          <span className="font-medium text-foreground">{portal.name}</span>
+          <span
+            className={cn(
+              "ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium",
+              portal.status === "active"
+                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                : "bg-muted text-muted-foreground"
+            )}
+          >
+            {portal.status}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
           <Button
             variant="outline"
             size="sm"
-            className="h-7 text-xs"
+            className="h-7 rounded-md text-[12px]"
             onClick={copyLink}
           >
             {copied ? (
@@ -212,7 +222,11 @@ export default function PortalManagePage() {
             {copied ? "Copied" : "Copy link"}
           </Button>
           <a href={portalUrl} target="_blank" rel="noopener noreferrer">
-            <Button variant="outline" size="sm" className="h-7 text-xs">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 rounded-md text-[12px]"
+            >
               <ExternalLink className="mr-1 h-3 w-3" />
               Client view
             </Button>
@@ -223,97 +237,121 @@ export default function PortalManagePage() {
       {/* Two-column layout */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left sidebar — details + compose */}
-        <div className="flex w-80 flex-shrink-0 flex-col border-r">
+        <div className="flex w-80 flex-shrink-0 flex-col border-r border-border/60">
           <div className="flex-1 space-y-5 overflow-y-auto p-4">
             {/* Client info card */}
-            <div>
-              <h3 className="mb-2 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+            <section>
+              <h3 className="mb-2 px-1 text-[10px] font-semibold tracking-[0.12em] text-muted-foreground/80 uppercase">
                 Client
               </h3>
-              <div className="rounded-lg border bg-card p-3">
+              <div className="rounded-xl border border-border/60 bg-card p-3.5">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
-                    {portal.clientName[0]?.toUpperCase()}
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">{portal.clientName}</p>
+                  <Avatar className="h-9 w-9 ring-1 ring-border/60">
+                    <AvatarFallback className="bg-primary/10 text-[13px] font-semibold text-primary">
+                      {portal.clientName[0]?.toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-semibold">
+                      {portal.clientName}
+                    </p>
                     {portal.clientEmail && (
-                      <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Mail className="h-3 w-3" />
+                      <p className="flex items-center gap-1 truncate text-[11px] text-muted-foreground">
+                        <Mail className="h-3 w-3 flex-shrink-0" />
                         {portal.clientEmail}
                       </p>
                     )}
                   </div>
                 </div>
               </div>
-            </div>
+            </section>
 
             {/* Stats */}
-            <div>
-              <h3 className="mb-2 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+            <section>
+              <h3 className="mb-2 px-1 text-[10px] font-semibold tracking-[0.12em] text-muted-foreground/80 uppercase">
                 Overview
               </h3>
               <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-lg border bg-card px-3 py-2">
-                  <div className="text-lg font-bold">
-                    {portal.updates.length}
+                {[
+                  {
+                    label: "Updates",
+                    value: portal.updates.length,
+                    tone: "text-foreground",
+                  },
+                  {
+                    label: "Deliverables",
+                    value: deliverableCount,
+                    tone: "text-foreground",
+                  },
+                  {
+                    label: "Approved",
+                    value: approvedCount,
+                    tone: "text-emerald-600 dark:text-emerald-400",
+                  },
+                  {
+                    label: "Comments",
+                    value: totalComments,
+                    tone: "text-foreground",
+                  },
+                ].map((stat) => (
+                  <div
+                    key={stat.label}
+                    className="rounded-xl border border-border/60 bg-card px-3 py-2.5"
+                  >
+                    <div
+                      className={cn(
+                        "text-[18px] font-bold tabular-nums",
+                        stat.tone
+                      )}
+                    >
+                      {stat.value}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {stat.label}
+                    </div>
                   </div>
-                  <div className="text-[11px] text-muted-foreground">
-                    Updates
-                  </div>
-                </div>
-                <div className="rounded-lg border bg-card px-3 py-2">
-                  <div className="text-lg font-bold">{deliverableCount}</div>
-                  <div className="text-[11px] text-muted-foreground">
-                    Deliverables
-                  </div>
-                </div>
-                <div className="rounded-lg border bg-card px-3 py-2">
-                  <div className="text-lg font-bold text-emerald-600">
-                    {approvedCount}
-                  </div>
-                  <div className="text-[11px] text-muted-foreground">
-                    Approved
-                  </div>
-                </div>
-                <div className="rounded-lg border bg-card px-3 py-2">
-                  <div className="text-lg font-bold">{totalComments}</div>
-                  <div className="text-[11px] text-muted-foreground">
-                    Comments
-                  </div>
-                </div>
+                ))}
               </div>
-            </div>
+            </section>
 
             {/* Portal details */}
-            <div>
-              <h3 className="mb-2 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+            <section>
+              <h3 className="mb-2 px-1 text-[10px] font-semibold tracking-[0.12em] text-muted-foreground/80 uppercase">
                 Details
               </h3>
-              <div className="space-y-2 text-sm">
+              <div className="rounded-xl border border-border/60 bg-card p-3.5">
                 {portal.description && (
-                  <p className="text-muted-foreground">{portal.description}</p>
+                  <p className="mb-3 text-[12px] leading-relaxed text-muted-foreground">
+                    {portal.description}
+                  </p>
                 )}
-                <div className="flex items-center justify-between text-xs">
+                <div
+                  className={cn(
+                    "flex items-center justify-between text-[12px]",
+                    portal.description && "border-t border-border/60 pt-2.5"
+                  )}
+                >
                   <span className="text-muted-foreground">Created</span>
-                  <span>{formatShortDate(portal.createdAt)}</span>
+                  <span className="font-medium">
+                    {formatShortDate(portal.createdAt)}
+                  </span>
                 </div>
                 {pendingCount > 0 && (
-                  <div className="flex items-center justify-between text-xs">
+                  <div className="mt-2 flex items-center justify-between text-[12px]">
                     <span className="text-muted-foreground">
                       Pending review
                     </span>
-                    <span className="font-medium text-amber-600">
+                    <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
                       {pendingCount}
                     </span>
                   </div>
                 )}
               </div>
-            </div>
+            </section>
 
             {/* Compose update */}
-            <div>
-              <h3 className="mb-2 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+            <section>
+              <h3 className="mb-2 px-1 text-[10px] font-semibold tracking-[0.12em] text-muted-foreground/80 uppercase">
                 Post update
               </h3>
               <form
@@ -334,7 +372,7 @@ export default function PortalManagePage() {
                   onChange={(e) => setNewUpdate(e.target.value)}
                   placeholder="Share progress with client..."
                   rows={4}
-                  className="w-full rounded-md border bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+                  className="w-full rounded-xl border border-border/60 bg-card px-3 py-2 text-[13px] outline-none placeholder:text-muted-foreground focus:border-border focus:ring-2 focus:ring-primary/10"
                 />
                 <div className="flex items-center gap-2">
                   <Select
@@ -343,7 +381,7 @@ export default function PortalManagePage() {
                       setUpdateType(v as "update" | "deliverable")
                     }
                   >
-                    <SelectTrigger className="h-8 flex-1 text-xs">
+                    <SelectTrigger className="h-8 flex-1 rounded-md text-[12px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -354,7 +392,7 @@ export default function PortalManagePage() {
                   <Button
                     type="submit"
                     size="sm"
-                    className="h-8"
+                    className="h-8 rounded-md"
                     disabled={!newUpdate.trim()}
                   >
                     <Plus className="mr-1 h-3.5 w-3.5" />
@@ -362,21 +400,23 @@ export default function PortalManagePage() {
                   </Button>
                 </div>
               </form>
-            </div>
+            </section>
 
             {/* Create issue */}
-            <div>
-              <h3 className="mb-2 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+            <section>
+              <h3 className="mb-2 px-1 text-[10px] font-semibold tracking-[0.12em] text-muted-foreground/80 uppercase">
                 Issues
               </h3>
-              <div className="rounded-lg border bg-card p-3">
-                <p className="text-sm font-medium">Create issue from portal</p>
-                <p className="mt-1 text-xs text-muted-foreground">
+              <div className="rounded-xl border border-border/60 bg-card p-3.5">
+                <p className="text-[13px] font-semibold">
+                  Create issue from portal
+                </p>
+                <p className="mt-1 text-[11px] text-muted-foreground">
                   Create a task directly in one or multiple boards.
                 </p>
                 <Button
                   size="sm"
-                  className="mt-3 h-8 w-full"
+                  className="mt-3 h-8 w-full rounded-md"
                   onClick={() => {
                     if (!issueBoardIds.length && boards?.length) {
                       const defaultBoardId =
@@ -395,17 +435,21 @@ export default function PortalManagePage() {
                   New issue
                 </Button>
               </div>
-            </div>
+            </section>
           </div>
         </div>
 
         {/* Right — Timeline feed */}
         <div className="flex flex-1 flex-col overflow-y-auto">
-          <div className="border-b px-6 py-3">
-            <h3 className="text-sm font-semibold">Timeline</h3>
-            <p className="text-xs text-muted-foreground">
-              Updates and deliverables shared with {portal.clientName}
-            </p>
+          <div className="flex h-12 items-center border-b border-border/60 px-6">
+            <div>
+              <h3 className="text-[13px] font-semibold tracking-tight">
+                Timeline
+              </h3>
+              <p className="text-[11px] text-muted-foreground">
+                Updates and deliverables shared with {portal.clientName}
+              </p>
+            </div>
           </div>
 
           {portal.updates.length === 0 ? (

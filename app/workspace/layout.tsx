@@ -21,9 +21,11 @@ export default async function WorkspaceLayout({
   }
 
   return (
-    <div className="flex h-svh overflow-hidden">
+    <div className="flex h-svh gap-2 overflow-hidden bg-background p-2">
       <SidebarClient />
-      <main className="flex min-w-0 flex-1">{children}</main>
+      <main className="flex min-w-0 flex-1 overflow-hidden rounded-2xl border border-border/60 bg-sidebar shadow-sm">
+        {children}
+      </main>
     </div>
   )
 }

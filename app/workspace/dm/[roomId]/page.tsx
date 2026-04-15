@@ -29,7 +29,10 @@ export default function DmPage() {
   const { data: workspace } = trpc.workspace.getDefault.useQuery(
     preferredWorkspaceId ? { preferredWorkspaceId } : undefined
   )
-  const { data: users } = trpc.user.list.useQuery()
+  const { data: users } = trpc.user.list.useQuery(
+    workspace ? { workspaceId: workspace.id } : undefined,
+    { enabled: Boolean(workspace) }
+  )
   const { data: dmRooms } = trpc.dm.list.useQuery(
     workspace && currentUser
       ? { workspaceId: workspace.id, userId: currentUser.id }
@@ -57,6 +60,8 @@ export default function DmPage() {
         replyCount: 0,
         replyPreviewUsers: [],
         attachments: vars.attachments ?? [],
+        reactions: [],
+        isPinned: false,
       }
       utils.dm.messages.setData({ roomId }, (old) => [
         ...(old ?? []),
