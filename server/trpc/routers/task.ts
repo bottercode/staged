@@ -1,9 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { router, publicProcedure } from "../trpc"
-import { taskComments, tasks, users } from "../../db/schema"
+import { router, protectedProcedure } from "../trpc"
+import { boardColumns, boards, taskComments, tasks, users } from "../../db/schema"
 import { eq, and, gte, sql, asc } from "drizzle-orm"
+import {
+  requireWorkspaceMember,
+  workspaceIdByTaskId,
+} from "@/server/trpc/access"
 
 async function ensureTaskCommentsTable(db: {
   execute: (query: any) => Promise<unknown>
@@ -41,7 +45,7 @@ async function ensureTaskLabelsColumn(db: {
 }
 
 export const taskRouter = router({
-  create: publicProcedure
+  create: protectedProcedure
     .input(
       z.object({
         boardId: z.string().uuid(),
@@ -53,7 +57,6 @@ export const taskRouter = router({
         priority: z.enum(["low", "medium", "high", "urgent"]).default("medium"),
         dueDate: z.string().datetime().optional(),
         labels: z.array(z.string().min(1).max(40)).optional(),
-        createdById: z.string().uuid(),
         channelMessageId: z.string().uuid().optional(),
         attachments: z
           .array(
@@ -69,6 +72,34 @@ export const taskRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await ensureTaskLabelsColumn(ctx.db)
+      await requireWorkspaceMember(ctx, input.workspaceId, ctx.userId)
+
+      const [board] = await ctx.db
+        .select({ id: boards.id, workspaceId: boards.workspaceId })
+        .from(boards)
+        .where(eq(boards.id, input.boardId))
+        .limit(1)
+
+      if (!board || board.workspaceId !== input.workspaceId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Board does not belong to this workspace",
+        })
+      }
+
+      const [column] = await ctx.db
+        .select({ id: boardColumns.id, boardId: boardColumns.boardId })
+        .from(boardColumns)
+        .where(eq(boardColumns.id, input.columnId))
+        .limit(1)
+
+      if (!column || column.boardId !== input.boardId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Column does not belong to selected board",
+        })
+      }
+
       // Get max position in target column
       const [maxPos] = await ctx.db
         .select({ max: sql<number>`coalesce(max(${tasks.position}), -1)` })
@@ -89,7 +120,7 @@ export const taskRouter = router({
           labels: input.labels ?? [],
           attachments: input.attachments ?? [],
           position: (maxPos?.max ?? -1) + 1,
-          createdById: input.createdById,
+          createdById: ctx.userId,
           channelMessageId: input.channelMessageId,
         })
         .returning()
@@ -97,7 +128,7 @@ export const taskRouter = router({
       return task
     }),
 
-  update: publicProcedure
+  update: protectedProcedure
     .input(
       z.object({
         id: z.string().uuid(),
@@ -121,6 +152,8 @@ export const taskRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await ensureTaskLabelsColumn(ctx.db)
+      const workspaceId = await workspaceIdByTaskId(ctx, input.id)
+      await requireWorkspaceMember(ctx, workspaceId, ctx.userId)
       const { id, ...updates } = input
       const values: Record<string, unknown> = { updatedAt: new Date() }
 
@@ -145,7 +178,7 @@ export const taskRouter = router({
       return task
     }),
 
-  move: publicProcedure
+  move: protectedProcedure
     .input(
       z.object({
         id: z.string().uuid(),
@@ -154,6 +187,8 @@ export const taskRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const workspaceId = await workspaceIdByTaskId(ctx, input.id)
+      await requireWorkspaceMember(ctx, workspaceId, ctx.userId)
       // Shift tasks in the target column to make room
       await ctx.db
         .update(tasks)
@@ -178,17 +213,21 @@ export const taskRouter = router({
       return task
     }),
 
-  delete: publicProcedure
+  delete: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      const workspaceId = await workspaceIdByTaskId(ctx, input.id)
+      await requireWorkspaceMember(ctx, workspaceId, ctx.userId)
       await ctx.db.delete(tasks).where(eq(tasks.id, input.id))
       return { success: true }
     }),
 
-  comments: publicProcedure
+  comments: protectedProcedure
     .input(z.object({ taskId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       await ensureTaskCommentsTable(ctx.db)
+      const workspaceId = await workspaceIdByTaskId(ctx, input.taskId)
+      await requireWorkspaceMember(ctx, workspaceId, ctx.userId)
       return ctx.db
         .select({
           id: taskComments.id,
@@ -207,7 +246,7 @@ export const taskRouter = router({
         .orderBy(asc(taskComments.createdAt))
     }),
 
-  addComment: publicProcedure
+  addComment: protectedProcedure
     .input(
       z.object({
         taskId: z.string().uuid(),
@@ -216,12 +255,8 @@ export const taskRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await ensureTaskCommentsTable(ctx.db)
-      if (!ctx.userId) {
-        throw new TRPCError({
-          code: "UNAUTHORIZED",
-          message: "Authentication required",
-        })
-      }
+      const workspaceId = await workspaceIdByTaskId(ctx, input.taskId)
+      await requireWorkspaceMember(ctx, workspaceId, ctx.userId)
 
       const [comment] = await ctx.db
         .insert(taskComments)
@@ -235,7 +270,7 @@ export const taskRouter = router({
       return comment
     }),
 
-  deleteComment: publicProcedure
+  deleteComment: protectedProcedure
     .input(
       z.object({
         id: z.string().uuid(),
@@ -243,22 +278,18 @@ export const taskRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await ensureTaskCommentsTable(ctx.db)
-      if (!ctx.userId) {
-        throw new TRPCError({
-          code: "UNAUTHORIZED",
-          message: "Authentication required",
-        })
-      }
-
       const [existing] = await ctx.db
         .select({
           id: taskComments.id,
           userId: taskComments.userId,
+          taskId: taskComments.taskId,
         })
         .from(taskComments)
         .where(eq(taskComments.id, input.id))
 
       if (!existing) return { success: false }
+      const workspaceId = await workspaceIdByTaskId(ctx, existing.taskId)
+      await requireWorkspaceMember(ctx, workspaceId, ctx.userId)
 
       if (existing.userId !== ctx.userId) {
         throw new TRPCError({

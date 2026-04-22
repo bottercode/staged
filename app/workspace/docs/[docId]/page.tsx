@@ -187,7 +187,6 @@ export default function DocPage() {
                     createChild.mutate({
                       workspaceId: doc.workspaceId,
                       title: "Untitled",
-                      createdById: currentUser.id,
                       parentId: doc.id,
                     })
                   }}

@@ -34,9 +34,7 @@ export default function DmPage() {
     { enabled: Boolean(workspace) }
   )
   const { data: dmRooms } = trpc.dm.list.useQuery(
-    workspace && currentUser
-      ? { workspaceId: workspace.id, userId: currentUser.id }
-      : skipToken
+    workspace && currentUser ? { workspaceId: workspace.id } : skipToken
   )
 
   const { data: messages } = trpc.dm.messages.useQuery(
@@ -122,7 +120,6 @@ export default function DmPage() {
           if (!currentUser) return
           sendMessage.mutate({
             dmRoomId: roomId,
-            userId: currentUser.id,
             content,
             attachments,
           })

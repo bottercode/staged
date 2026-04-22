@@ -52,7 +52,6 @@ export function DmCreateDialog({
                 if (!workspaceId || !currentUser) return
                 createDm.mutate({
                   workspaceId,
-                  userId: currentUser.id,
                   otherUserId: member.userId,
                 })
               }}

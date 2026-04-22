@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { router, publicProcedure } from "../trpc"
+import { router, protectedProcedure } from "../trpc"
 import {
   channels,
   channelMembers,
@@ -8,30 +8,24 @@ import {
   workspaceMembers,
 } from "../../db/schema"
 import { eq, and, count, or, inArray } from "drizzle-orm"
+import {
+  requireChannelAccess,
+  requireWorkspaceAdmin,
+  requireWorkspaceMember,
+  workspaceIdByChannelId,
+} from "@/server/trpc/access"
 
 export const channelRouter = router({
-  list: publicProcedure
+  list: protectedProcedure
     .input(z.object({ workspaceId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const userId = ctx.userId
-      if (!userId) {
-        return ctx.db
-          .select()
-          .from(channels)
-          .where(
-            and(
-              eq(channels.workspaceId, input.workspaceId),
-              eq(channels.isPrivate, false)
-            )
-          )
-          .orderBy(channels.name)
-      }
+      await requireWorkspaceMember(ctx, input.workspaceId, ctx.userId)
 
       // Get IDs of private channels the user is a member of
       const memberRows = await ctx.db
         .select({ channelId: channelMembers.channelId })
         .from(channelMembers)
-        .where(eq(channelMembers.userId, userId))
+        .where(eq(channelMembers.userId, ctx.userId))
 
       const memberChannelIds = memberRows
         .map((r) => r.channelId)
@@ -54,9 +48,10 @@ export const channelRouter = router({
         .orderBy(channels.name)
     }),
 
-  getById: publicProcedure
+  getById: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      await requireChannelAccess(ctx, input.id, ctx.userId)
       const [channel] = await ctx.db
         .select()
         .from(channels)
@@ -72,7 +67,7 @@ export const channelRouter = router({
       return { ...channel, memberCount: memberCount.count }
     }),
 
-  create: publicProcedure
+  create: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string().uuid(),
@@ -82,6 +77,7 @@ export const channelRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await requireWorkspaceMember(ctx, input.workspaceId, ctx.userId)
       const slug = input.name.toLowerCase().replace(/\s+/g, "-")
 
       const [channel] = await ctx.db
@@ -95,10 +91,17 @@ export const channelRouter = router({
         })
         .returning()
 
+      if (input.isPrivate) {
+        await ctx.db.insert(channelMembers).values({
+          channelId: channel.id,
+          userId: ctx.userId,
+        })
+      }
+
       return channel
     }),
 
-  update: publicProcedure
+  update: protectedProcedure
     .input(
       z.object({
         id: z.string().uuid(),
@@ -108,17 +111,12 @@ export const channelRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.userId) {
-        throw new TRPCError({
-          code: "UNAUTHORIZED",
-          message: "Authentication required",
-        })
-      }
+      const workspaceId = await workspaceIdByChannelId(ctx, input.id)
+      await requireWorkspaceAdmin(ctx, workspaceId, ctx.userId)
 
       const [channel] = await ctx.db
         .select({
           id: channels.id,
-          workspaceId: channels.workspaceId,
           slug: channels.slug,
         })
         .from(channels)
@@ -127,24 +125,6 @@ export const channelRouter = router({
 
       if (!channel) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found" })
-      }
-
-      const [membership] = await ctx.db
-        .select({ role: workspaceMembers.role })
-        .from(workspaceMembers)
-        .where(
-          and(
-            eq(workspaceMembers.workspaceId, channel.workspaceId),
-            eq(workspaceMembers.userId, ctx.userId)
-          )
-        )
-        .limit(1)
-
-      if (!membership || membership.role !== "admin") {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Only workspace admins can edit channel details",
-        })
       }
 
       const normalizedName = input.name.trim()
@@ -174,9 +154,10 @@ export const channelRouter = router({
       return updated ?? null
     }),
 
-  getMembers: publicProcedure
+  getMembers: protectedProcedure
     .input(z.object({ channelId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      await requireChannelAccess(ctx, input.channelId, ctx.userId)
       return ctx.db
         .selectDistinct({
           id: users.id,
@@ -189,7 +170,7 @@ export const channelRouter = router({
         .where(eq(channelMembers.channelId, input.channelId))
     }),
 
-  addMember: publicProcedure
+  addMember: protectedProcedure
     .input(
       z.object({
         channelId: z.string().uuid(),
@@ -197,50 +178,15 @@ export const channelRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.userId) {
-        throw new TRPCError({
-          code: "UNAUTHORIZED",
-          message: "Authentication required",
-        })
-      }
-
-      const [channel] = await ctx.db
-        .select({
-          id: channels.id,
-          workspaceId: channels.workspaceId,
-        })
-        .from(channels)
-        .where(eq(channels.id, input.channelId))
-        .limit(1)
-
-      if (!channel) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found" })
-      }
-
-      const [actorMembership] = await ctx.db
-        .select({ role: workspaceMembers.role })
-        .from(workspaceMembers)
-        .where(
-          and(
-            eq(workspaceMembers.workspaceId, channel.workspaceId),
-            eq(workspaceMembers.userId, ctx.userId)
-          )
-        )
-        .limit(1)
-
-      if (!actorMembership || actorMembership.role !== "admin") {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Only workspace admins can manage channel members",
-        })
-      }
+      const workspaceId = await workspaceIdByChannelId(ctx, input.channelId)
+      await requireWorkspaceAdmin(ctx, workspaceId, ctx.userId)
 
       const [targetWorkspaceMembership] = await ctx.db
         .select({ id: workspaceMembers.id })
         .from(workspaceMembers)
         .where(
           and(
-            eq(workspaceMembers.workspaceId, channel.workspaceId),
+            eq(workspaceMembers.workspaceId, workspaceId),
             eq(workspaceMembers.userId, input.userId)
           )
         )
@@ -274,7 +220,7 @@ export const channelRouter = router({
       return { ok: true }
     }),
 
-  removeMember: publicProcedure
+  removeMember: protectedProcedure
     .input(
       z.object({
         channelId: z.string().uuid(),
@@ -282,17 +228,9 @@ export const channelRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.userId) {
-        throw new TRPCError({
-          code: "UNAUTHORIZED",
-          message: "Authentication required",
-        })
-      }
-
       const [channel] = await ctx.db
         .select({
           id: channels.id,
-          workspaceId: channels.workspaceId,
           slug: channels.slug,
         })
         .from(channels)
@@ -302,24 +240,8 @@ export const channelRouter = router({
       if (!channel) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found" })
       }
-
-      const [actorMembership] = await ctx.db
-        .select({ role: workspaceMembers.role })
-        .from(workspaceMembers)
-        .where(
-          and(
-            eq(workspaceMembers.workspaceId, channel.workspaceId),
-            eq(workspaceMembers.userId, ctx.userId)
-          )
-        )
-        .limit(1)
-
-      if (!actorMembership || actorMembership.role !== "admin") {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Only workspace admins can manage channel members",
-        })
-      }
+      const workspaceId = await workspaceIdByChannelId(ctx, input.channelId)
+      await requireWorkspaceAdmin(ctx, workspaceId, ctx.userId)
 
       if (channel.slug === "general") {
         throw new TRPCError({

@@ -1,10 +1,11 @@
 import { z } from "zod"
-import { router, publicProcedure } from "../trpc"
+import { router, protectedProcedure } from "../trpc"
 import { users, workspaceMembers } from "../../db/schema"
 import { eq } from "drizzle-orm"
+import { requireWorkspaceMember } from "@/server/trpc/access"
 
 export const userRouter = router({
-  list: publicProcedure
+  list: protectedProcedure
     .input(
       z
         .object({
@@ -14,6 +15,7 @@ export const userRouter = router({
     )
     .query(async ({ ctx, input }) => {
       if (input?.workspaceId) {
+        await requireWorkspaceMember(ctx, input.workspaceId, ctx.userId)
         return ctx.db
           .select({
             id: users.id,
@@ -27,10 +29,19 @@ export const userRouter = router({
           .where(eq(workspaceMembers.workspaceId, input.workspaceId))
           .orderBy(users.name)
       }
-      return ctx.db.select().from(users).orderBy(users.name)
+      return ctx.db
+        .select({
+          id: users.id,
+          name: users.name,
+          email: users.email,
+          avatarUrl: users.avatarUrl,
+          createdAt: users.createdAt,
+        })
+        .from(users)
+        .where(eq(users.id, ctx.userId))
     }),
 
-  getById: publicProcedure
+  getById: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const [user] = await ctx.db

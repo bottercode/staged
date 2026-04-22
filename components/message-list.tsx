@@ -207,7 +207,6 @@ export function MessageList({
     if (!target || target.id === currentUserId) return
     dmCreate.mutate({
       workspaceId,
-      userId: currentUserId,
       otherUserId: target.id,
     })
   }

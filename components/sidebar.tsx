@@ -1,20 +1,5 @@
 "use client"
 
-// Persist the desktop-client marker as soon as the sidebar module loads on
-// the client. The Electron webview initially navigates to
-// `/workspace?client=desktop`; SPA navigations afterwards drop the query
-// string, so we stash it in sessionStorage for later checks.
-if (typeof window !== "undefined") {
-  try {
-    const params = new URLSearchParams(window.location.search)
-    if (params.get("client") === "desktop") {
-      window.sessionStorage.setItem("staged-client", "desktop")
-    }
-  } catch {
-    // ignore
-  }
-}
-
 import {
   Hash,
   Lock,
@@ -23,7 +8,6 @@ import {
   MessageCircle,
   Building2,
   BookOpen,
-  Sparkles,
   Settings2,
   MoreHorizontal,
   Pencil,
@@ -83,8 +67,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
-type Tab = "chat" | "tasks" | "portals" | "docs" | "agent" | "settings"
-const AGENT_OPEN_SETTINGS_REQUEST_KEY = "staged-agent-open-settings-request"
+type Tab = "chat" | "tasks" | "portals" | "docs" | "settings"
 
 function UnreadBadge({ count }: { count: number }) {
   if (count <= 0) return null
@@ -257,7 +240,6 @@ function NavRail({
     { tab: "tasks", icon: SquareKanban, label: "Tasks" },
     { tab: "docs", icon: BookOpen, label: "Docs" },
     { tab: "portals", icon: Building2, label: "Client Portals" },
-    { tab: "agent", icon: Sparkles, label: "AI Agent" },
   ]
 
   return (
@@ -802,9 +784,7 @@ export function Sidebar() {
 
   const activeTab: Tab = pathname.includes("/settings")
     ? "settings"
-    : pathname.includes("/agent")
-      ? "agent"
-      : pathname.includes("/portals")
+    : pathname.includes("/portals")
         ? "portals"
         : pathname.includes("/docs")
           ? "docs"
@@ -837,9 +817,7 @@ export function Sidebar() {
     workspace ? { workspaceId: workspace.id } : skipToken
   )
   const { data: dmRooms } = trpc.dm.list.useQuery(
-    workspace && currentUser
-      ? { workspaceId: workspace.id, userId: currentUser.id }
-      : skipToken
+    workspace && currentUser ? { workspaceId: workspace.id } : skipToken
   )
   const { data: boards } = trpc.board.list.useQuery(
     workspace ? { workspaceId: workspace.id } : skipToken
@@ -936,7 +914,6 @@ export function Sidebar() {
     if (!workspace || !currentUser) return
     createDoc.mutate({
       workspaceId: workspace.id,
-      createdById: currentUser.id,
     })
   }
 
@@ -965,18 +942,10 @@ export function Sidebar() {
       } else {
         router.push("/workspace/portals")
       }
-    } else if (tab === "agent") {
-      router.push("/workspace/agent")
     }
   }
 
   const handleOpenSettings = () => {
-    if (activeTab === "agent" && typeof window !== "undefined") {
-      window.localStorage.setItem(
-        AGENT_OPEN_SETTINGS_REQUEST_KEY,
-        String(Date.now())
-      )
-    }
     router.push("/workspace/settings")
   }
 
@@ -1003,7 +972,7 @@ export function Sidebar() {
           onOpenSettings={handleOpenSettings}
         />
 
-        {activeTab !== "agent" && activeTab !== "settings" && (
+        {activeTab !== "settings" && (
           <div className="flex w-52 flex-col border-l border-sidebar-border/60 bg-sidebar text-sidebar-foreground xl:w-60">
             {activeTab === "chat" ? (
               <ChatSidebar

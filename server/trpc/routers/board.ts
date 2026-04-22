@@ -1,7 +1,11 @@
 import { z } from "zod"
-import { router, publicProcedure } from "../trpc"
+import { router, protectedProcedure } from "../trpc"
 import { boards, boardColumns, tasks, users } from "../../db/schema"
 import { eq, asc, and, ne, sql } from "drizzle-orm"
+import {
+  requireWorkspaceMember,
+  workspaceIdByBoardId,
+} from "@/server/trpc/access"
 
 let boardMigrated = false
 async function ensureBoardTaskColumns(db: {
@@ -18,9 +22,10 @@ async function ensureBoardTaskColumns(db: {
 }
 
 export const boardRouter = router({
-  list: publicProcedure
+  list: protectedProcedure
     .input(z.object({ workspaceId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      await requireWorkspaceMember(ctx, input.workspaceId, ctx.userId)
       return ctx.db
         .select()
         .from(boards)
@@ -28,7 +33,7 @@ export const boardRouter = router({
         .orderBy(asc(boards.createdAt))
     }),
 
-  getById: publicProcedure
+  getById: protectedProcedure
     .input(
       z.object({
         id: z.string().uuid(),
@@ -43,6 +48,7 @@ export const boardRouter = router({
         .where(eq(boards.id, input.id))
 
       if (!board) return null
+      await requireWorkspaceMember(ctx, board.workspaceId, ctx.userId)
 
       const columns = await ctx.db
         .select()
@@ -99,7 +105,7 @@ export const boardRouter = router({
       }
     }),
 
-  create: publicProcedure
+  create: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string().uuid(),
@@ -107,6 +113,7 @@ export const boardRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await requireWorkspaceMember(ctx, input.workspaceId, ctx.userId)
       const [board] = await ctx.db
         .insert(boards)
         .values({
@@ -125,7 +132,7 @@ export const boardRouter = router({
       return board
     }),
 
-  rename: publicProcedure
+  rename: protectedProcedure
     .input(
       z.object({
         id: z.string().uuid(),
@@ -133,6 +140,8 @@ export const boardRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const workspaceId = await workspaceIdByBoardId(ctx, input.id)
+      await requireWorkspaceMember(ctx, workspaceId, ctx.userId)
       const [board] = await ctx.db
         .update(boards)
         .set({
@@ -144,13 +153,15 @@ export const boardRouter = router({
       return board ?? null
     }),
 
-  delete: publicProcedure
+  delete: protectedProcedure
     .input(
       z.object({
         id: z.string().uuid(),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const workspaceId = await workspaceIdByBoardId(ctx, input.id)
+      await requireWorkspaceMember(ctx, workspaceId, ctx.userId)
       const [deleted] = await ctx.db
         .delete(boards)
         .where(eq(boards.id, input.id))

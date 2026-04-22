@@ -74,7 +74,6 @@ export function PortalCreateDialog({
               clientEmail: clientEmail.trim() || undefined,
               description: description.trim() || undefined,
               boardId: boardId || undefined,
-              createdById: currentUser.id,
             })
           }}
           className="space-y-4"

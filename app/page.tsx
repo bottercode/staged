@@ -13,7 +13,6 @@ import {
   Users,
   Zap,
   MessageSquare,
-  Bot,
   Layers,
   Star,
 } from "lucide-react"
@@ -21,7 +20,7 @@ import {
 export const metadata = {
   title: "Staged — The workspace where work moves forward",
   description:
-    "Channels, tasks, docs, and AI — everything your team needs, in one place.",
+    "Channels, tasks, docs, and portals — everything your team needs, in one place.",
 }
 
 const features = [
@@ -58,14 +57,6 @@ const features = [
     shadow: "shadow-emerald-500/25",
   },
   {
-    icon: Bot,
-    title: "AI Agent",
-    description:
-      "A built-in agent that understands your workspace. Ask, automate, and accelerate.",
-    gradient: "from-violet-500 to-indigo-500",
-    shadow: "shadow-violet-500/25",
-  },
-  {
     icon: Users,
     title: "One Workspace",
     description:
@@ -78,7 +69,7 @@ const features = [
 const stats = [
   { value: "6+", label: "Tools in one" },
   { value: "∞", label: "Channels" },
-  { value: "24/7", label: "AI on standby" },
+  { value: "24/7", label: "Collaboration" },
   { value: "<100ms", label: "Real-time sync" },
 ]
 
@@ -145,7 +136,7 @@ export default async function LandingPage() {
           <div className="animate-fade-up inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs text-white/80 backdrop-blur-sm">
             <Sparkles className="h-3 w-3 text-yellow-400" />
             <span className="bg-gradient-to-r from-violet-400 via-pink-400 to-orange-400 bg-clip-text font-medium text-transparent">
-              Chat · Tasks · Docs · Portals · AI — one tool
+              Chat · Tasks · Docs · Portals — one tool
             </span>
           </div>
 
@@ -182,7 +173,7 @@ export default async function LandingPage() {
 
           <p className="animate-fade-up animation-delay-200 mt-8 max-w-2xl text-lg leading-relaxed text-white/60 sm:text-xl">
             Stop juggling a dozen apps to get work done. Staged brings channels,
-            tasks, docs, client portals, and an AI agent into a single,
+            tasks, docs, and client portals into a single,
             beautifully focused workspace.
           </p>
 
@@ -193,7 +184,6 @@ export default async function LandingPage() {
               { icon: CheckSquare, label: "Tasks", color: "text-pink-300" },
               { icon: FileText, label: "Docs", color: "text-orange-300" },
               { icon: Globe, label: "Portals", color: "text-emerald-300" },
-              { icon: Bot, label: "AI Agent", color: "text-sky-300" },
             ].map(({ icon: Icon, label, color }) => (
               <div
                 key={label}
@@ -288,7 +278,7 @@ export default async function LandingPage() {
                       {[
                         { icon: CheckSquare, label: "Tasks" },
                         { icon: FileText, label: "Docs" },
-                        { icon: Bot, label: "AI Agent" },
+                        { icon: Globe, label: "Portals" },
                       ].map((item) => (
                         <div
                           key={item.label}
@@ -418,20 +408,20 @@ export default async function LandingPage() {
                     </div>
                   </main>
 
-                  {/* AI panel */}
+                  {/* Team panel */}
                   <aside className="col-span-3 p-3">
                     <div className="flex items-center gap-1.5 text-[10px] font-semibold tracking-wider text-white/40 uppercase">
-                      <Bot className="h-3 w-3" />
-                      AI Agent
+                      <Users className="h-3 w-3" />
+                      Team Pulse
                     </div>
                     <div className="mt-3 space-y-2">
                       <div className="rounded-lg border border-white/10 bg-gradient-to-br from-violet-500/10 to-pink-500/5 p-2.5">
                         <div className="flex items-center gap-1 text-[9px] font-semibold text-violet-300">
                           <Sparkles className="h-2.5 w-2.5" />
-                          SUGGESTED
+                          THIS WEEK
                         </div>
                         <p className="mt-1 text-[10px] text-white/80">
-                          Summarize the last 20 messages in #engineering
+                          4 milestones are on track across engineering and design
                         </p>
                       </div>
                       <div className="rounded-lg border border-white/10 bg-white/5 p-2.5">
@@ -468,7 +458,7 @@ export default async function LandingPage() {
                   </div>
                   <div>
                     <p className="text-[10px] font-semibold text-white">
-                      AI ready
+                      Team ready
                     </p>
                     <p className="text-[9px] text-white/50">Zero setup</p>
                   </div>

@@ -104,7 +104,6 @@ export function CreateTaskFromMessageDialog({
               description: description.trim() || undefined,
               priority: priority as "low" | "medium" | "high" | "urgent",
               assigneeId: assigneeId || undefined,
-              createdById: currentUser.id,
               channelMessageId: messageId,
             })
           }}

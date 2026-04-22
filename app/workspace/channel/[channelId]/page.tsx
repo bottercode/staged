@@ -244,7 +244,6 @@ export default function ChannelPage() {
             if (!currentUser) return
             sendMessage.mutate({
               channelId,
-              userId: currentUser.id,
               content,
               attachments,
             })
@@ -283,7 +282,7 @@ export default function ChannelPage() {
       )}
 
       <Dialog open={showChannelSettings} onOpenChange={setShowChannelSettings}>
-        <DialogContent className="max-h-[85vh] w-[calc(100vw-2rem)] overflow-y-auto p-0 sm:w-[520px] sm:max-w-[520px]">
+        <DialogContent className="flex max-h-[85vh] w-[min(520px,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] flex-col overflow-x-hidden overflow-y-hidden p-0">
           <DialogHeader className="border-b border-border/60 px-5 py-3.5">
             <DialogTitle className="flex items-center gap-2 text-[14px] font-semibold">
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted/70 text-muted-foreground">
@@ -297,179 +296,183 @@ export default function ChannelPage() {
             </DialogTitle>
           </DialogHeader>
 
-          <div className="px-5 pt-4">
-            <div className="flex items-center gap-1 rounded-lg bg-muted/40 p-1">
-              <button
-                type="button"
-                onClick={() => setSettingsTab("about")}
-                className={`flex-1 rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors ${
-                  settingsTab === "about"
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                About
-              </button>
-              <button
-                type="button"
-                onClick={() => setSettingsTab("members")}
-                className={`flex-1 rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors ${
-                  settingsTab === "members"
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Members
-              </button>
+          <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+            <div className="px-5 pt-4">
+              <div className="flex items-center gap-1 rounded-lg bg-muted/40 p-1">
+                <button
+                  type="button"
+                  onClick={() => setSettingsTab("about")}
+                  className={`flex-1 rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                    settingsTab === "about"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  About
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSettingsTab("members")}
+                  className={`flex-1 rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                    settingsTab === "members"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Members
+                </button>
+              </div>
+            </div>
+
+            <div className="px-5 py-4">
+              {settingsTab === "about" ? (
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <p className="px-1 text-[10px] font-semibold tracking-[0.12em] text-muted-foreground/80 uppercase">
+                      Channel Name
+                    </p>
+                    <Input
+                      value={draftName}
+                      onChange={(event) => setDraftName(event.target.value)}
+                      placeholder="engineering"
+                      className="h-8 text-[12px]"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="px-1 text-[10px] font-semibold tracking-[0.12em] text-muted-foreground/80 uppercase">
+                      Description
+                    </p>
+                    <Input
+                      value={draftDescription}
+                      onChange={(event) =>
+                        setDraftDescription(event.target.value)
+                      }
+                      placeholder="Channel description"
+                      className="h-8 text-[12px]"
+                    />
+                  </div>
+                  {channel?.slug !== "general" && (
+                    <button
+                      type="button"
+                      onClick={() => setDraftIsPrivate((p) => !p)}
+                      className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-colors ${
+                        draftIsPrivate
+                          ? "border-primary/40 bg-primary/5"
+                          : "border-border/60 bg-card hover:bg-muted/40"
+                      }`}
+                    >
+                      <div
+                        className={`flex h-8 w-8 items-center justify-center rounded-lg ${draftIsPrivate ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}
+                      >
+                        <Lock className="h-3.5 w-3.5" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-[13px] font-medium">
+                          Private channel
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {draftIsPrivate
+                            ? "Only invited members can see this channel"
+                            : "Anyone in the workspace can join"}
+                        </p>
+                      </div>
+                      <div
+                        className={`h-4 w-4 rounded-full border-2 transition-colors ${draftIsPrivate ? "border-primary bg-primary" : "border-muted-foreground/40"}`}
+                      />
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3 overflow-x-hidden">
+                  {isAdmin ? (
+                    <div className="flex items-center gap-1.5">
+                      <select
+                        value={selectedMemberToAdd}
+                        onChange={(event) =>
+                          setSelectedMemberToAdd(event.target.value)
+                        }
+                        className="h-8 w-0 min-w-0 flex-1 rounded-md border border-border/60 bg-background px-2.5 text-[12px]"
+                      >
+                        <option value="">Add member...</option>
+                        {addableMembers.map((member) => (
+                          <option key={member.userId} value={member.userId}>
+                            {member.name} ({member.email})
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        size="sm"
+                        className="h-8 rounded-md text-[12px]"
+                        disabled={
+                          !selectedMemberToAdd || addChannelMember.isPending
+                        }
+                        onClick={() => {
+                          if (!selectedMemberToAdd) return
+                          addChannelMember.mutate({
+                            channelId,
+                            userId: selectedMemberToAdd,
+                          })
+                        }}
+                      >
+                        Add
+                      </Button>
+                    </div>
+                  ) : null}
+
+                  <div className="max-h-72 divide-y divide-border/60 overflow-hidden overflow-y-auto rounded-xl border border-border/60 bg-card">
+                    {(channelMembers ?? []).map((member) => {
+                      const role =
+                        workspaceMembers?.find((wm) => wm.userId === member.id)
+                          ?.role ?? "member"
+                      return (
+                        <div
+                          key={member.id}
+                          className="flex items-center gap-2.5 px-3 py-2"
+                        >
+                          <Avatar className="h-7 w-7 shrink-0 ring-1 ring-border/60">
+                            <AvatarImage src={member.avatarUrl ?? undefined} />
+                            <AvatarFallback className="bg-primary/10 text-[10px] font-semibold text-primary">
+                              {member.name?.[0]?.toUpperCase() ?? "U"}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[13px] font-medium">
+                              {member.name}
+                            </p>
+                            <p className="truncate text-[11px] text-muted-foreground">
+                              {member.email}
+                            </p>
+                          </div>
+                          <span className="shrink-0 rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground capitalize">
+                            {role}
+                          </span>
+                          {isAdmin &&
+                          channel?.slug !== "general" &&
+                          member.id !== currentUser?.id ? (
+                            <Button
+                              size="icon-sm"
+                              variant="ghost"
+                              className="h-6 w-6 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                              disabled={removeChannelMember.isPending}
+                              onClick={() =>
+                                removeChannelMember.mutate({
+                                  channelId,
+                                  userId: member.id,
+                                })
+                              }
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          ) : null}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-
-          <div className="px-5 py-4">
-            {settingsTab === "about" ? (
-              <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <p className="px-1 text-[10px] font-semibold tracking-[0.12em] text-muted-foreground/80 uppercase">
-                    Channel Name
-                  </p>
-                  <Input
-                    value={draftName}
-                    onChange={(event) => setDraftName(event.target.value)}
-                    placeholder="engineering"
-                    className="h-8 text-[12px]"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <p className="px-1 text-[10px] font-semibold tracking-[0.12em] text-muted-foreground/80 uppercase">
-                    Description
-                  </p>
-                  <Input
-                    value={draftDescription}
-                    onChange={(event) =>
-                      setDraftDescription(event.target.value)
-                    }
-                    placeholder="Channel description"
-                    className="h-8 text-[12px]"
-                  />
-                </div>
-                {channel?.slug !== "general" && (
-                  <button
-                    type="button"
-                    onClick={() => setDraftIsPrivate((p) => !p)}
-                    className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-colors ${
-                      draftIsPrivate
-                        ? "border-primary/40 bg-primary/5"
-                        : "border-border/60 bg-card hover:bg-muted/40"
-                    }`}
-                  >
-                    <div
-                      className={`flex h-8 w-8 items-center justify-center rounded-lg ${draftIsPrivate ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}
-                    >
-                      <Lock className="h-3.5 w-3.5" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-[13px] font-medium">Private channel</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {draftIsPrivate
-                          ? "Only invited members can see this channel"
-                          : "Anyone in the workspace can join"}
-                      </p>
-                    </div>
-                    <div
-                      className={`h-4 w-4 rounded-full border-2 transition-colors ${draftIsPrivate ? "border-primary bg-primary" : "border-muted-foreground/40"}`}
-                    />
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-3 overflow-x-hidden">
-                {isAdmin ? (
-                  <div className="flex items-center gap-1.5">
-                    <select
-                      value={selectedMemberToAdd}
-                      onChange={(event) =>
-                        setSelectedMemberToAdd(event.target.value)
-                      }
-                      className="h-8 min-w-0 flex-1 rounded-md border border-border/60 bg-background px-2.5 text-[12px]"
-                    >
-                      <option value="">Add member...</option>
-                      {addableMembers.map((member) => (
-                        <option key={member.userId} value={member.userId}>
-                          {member.name} ({member.email})
-                        </option>
-                      ))}
-                    </select>
-                    <Button
-                      size="sm"
-                      className="h-8 rounded-md text-[12px]"
-                      disabled={
-                        !selectedMemberToAdd || addChannelMember.isPending
-                      }
-                      onClick={() => {
-                        if (!selectedMemberToAdd) return
-                        addChannelMember.mutate({
-                          channelId,
-                          userId: selectedMemberToAdd,
-                        })
-                      }}
-                    >
-                      Add
-                    </Button>
-                  </div>
-                ) : null}
-
-                <div className="max-h-72 divide-y divide-border/60 overflow-hidden overflow-y-auto rounded-xl border border-border/60 bg-card">
-                  {(channelMembers ?? []).map((member) => {
-                    const role =
-                      workspaceMembers?.find((wm) => wm.userId === member.id)
-                        ?.role ?? "member"
-                    return (
-                      <div
-                        key={member.id}
-                        className="flex items-center gap-2.5 px-3 py-2"
-                      >
-                        <Avatar className="h-7 w-7 shrink-0 ring-1 ring-border/60">
-                          <AvatarImage src={member.avatarUrl ?? undefined} />
-                          <AvatarFallback className="bg-primary/10 text-[10px] font-semibold text-primary">
-                            {member.name?.[0]?.toUpperCase() ?? "U"}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[13px] font-medium">
-                            {member.name}
-                          </p>
-                          <p className="truncate text-[11px] text-muted-foreground">
-                            {member.email}
-                          </p>
-                        </div>
-                        <span className="shrink-0 rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground capitalize">
-                          {role}
-                        </span>
-                        {isAdmin &&
-                        channel?.slug !== "general" &&
-                        member.id !== currentUser?.id ? (
-                          <Button
-                            size="icon-sm"
-                            variant="ghost"
-                            className="h-6 w-6 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                            disabled={removeChannelMember.isPending}
-                            onClick={() =>
-                              removeChannelMember.mutate({
-                                channelId,
-                                userId: member.id,
-                              })
-                            }
-                          >
-                            <X className="h-3 w-3" />
-                          </Button>
-                        ) : null}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-          <DialogFooter className="border-t border-border/60 px-5 py-3">
+          <DialogFooter className="border-t border-border/60 px-5 pt-3 pb-6">
             {settingsTab === "about" ? (
               <>
                 <Button

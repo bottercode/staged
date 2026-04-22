@@ -732,33 +732,18 @@ function TaskSelector({
   )
 }
 
-// ── Local folder picker (dev only) ───────────────────────
-
-const OPEN_FOLDER_REQUEST_KEY = "staged-agent-open-folder-request"
-const OPEN_FOLDER_RESULT_KEY = "staged-agent-open-folder-result"
+// ── Project path picker ───────────────────────────────────
 
 function LocalFolderPicker({
   onSetPath,
 }: {
   onSetPath: (path: string) => void
 }) {
-  const handleBrowse = () => {
-    localStorage.setItem(OPEN_FOLDER_REQUEST_KEY, Date.now().toString())
-  }
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const result = localStorage.getItem(OPEN_FOLDER_RESULT_KEY)
-      if (!result) return
-      localStorage.removeItem(OPEN_FOLDER_RESULT_KEY)
-      onSetPath(result)
-    }, 100)
-    return () => clearInterval(interval)
-  }, [onSetPath])
+  const [path, setPath] = useState("")
 
   return (
     <div className="flex h-full items-center justify-center">
-      <div className="flex flex-col items-center gap-6 text-center">
+      <div className="w-full max-w-lg space-y-6 px-6 text-center">
         <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04]">
           <svg
             width="28"
@@ -777,91 +762,32 @@ function LocalFolderPicker({
             Open a project
           </h1>
           <p className="text-[13px] text-white/40">
-            Choose a folder to start coding with AI
+            Enter an absolute path on this machine to start coding with AI
           </p>
         </div>
-        <button
-          onClick={handleBrowse}
-          className="flex items-center gap-2 rounded-lg bg-white/90 px-5 py-2.5 text-[13px] font-medium text-black transition-opacity hover:opacity-90 active:opacity-75"
+        <form
+          className="space-y-2 text-left"
+          onSubmit={(event) => {
+            event.preventDefault()
+            const next = path.trim()
+            if (!next) return
+            onSetPath(next)
+          }}
         >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
+          <Input
+            value={path}
+            onChange={(event) => setPath(event.target.value)}
+            placeholder="/Users/you/project"
+            className="h-10 border-white/15 bg-white/[0.04] text-white placeholder:text-white/40"
+          />
+          <Button
+            type="submit"
+            className="h-9 w-full bg-white/90 text-black hover:bg-white/80"
+            disabled={!path.trim()}
           >
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-          </svg>
-          Browse folder
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ── Connect screen ───────────────────────────────────────
-
-const RELEASE_BASE =
-  "https://github.com/bottercode/staged/releases/latest/download"
-
-function ConnectScreen({
-  onSetPath: _onSetPath,
-}: {
-  onSetPath: (path: string) => void
-}) {
-  const [platform, setPlatform] = useState<"mac" | "win" | "linux" | null>(null)
-
-  useEffect(() => {
-    const ua = navigator.userAgent
-    if (ua.includes("Mac") && !ua.includes("Win")) setPlatform("mac")
-    else if (ua.includes("Win")) setPlatform("win")
-    else setPlatform("linux")
-  }, [])
-
-  const downloadUrl =
-    platform === "win"
-      ? `${RELEASE_BASE}/Staged-win.exe`
-      : `${RELEASE_BASE}/Staged-linux.AppImage`
-
-  return (
-    <div className="flex h-full w-full flex-col items-center justify-center bg-background px-8">
-      <div className="w-full max-w-xs space-y-5 text-center">
-        <div className="flex justify-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl border bg-muted">
-            <Sparkles className="h-6 w-6 text-foreground/70" />
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <h1 className="text-xl font-semibold tracking-tight">
-            Use the desktop app
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            The AI agent runs directly on your machine. Download the Staged
-            desktop app to get started.
-          </p>
-        </div>
-
-        {platform === "mac" ? (
-          <div className="w-full rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-            macOS app coming soon
-          </div>
-        ) : (
-          <a
-            href={platform ? downloadUrl : "#"}
-            download
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border bg-foreground px-4 py-2.5 text-sm font-medium text-background transition-opacity hover:opacity-90"
-          >
-            {platform === "win" ? "Download for Windows" : "Download for Linux"}
-            <ArrowRight className="h-4 w-4" />
-          </a>
-        )}
-
-        <p className="text-xs text-muted-foreground">
-          Windows · Linux · macOS coming soon
-        </p>
+            Open project
+          </Button>
+        </form>
       </div>
     </div>
   )
@@ -869,50 +795,11 @@ function ConnectScreen({
 
 // ── Main Agent Panel ─────────────────────────────────────
 
-function detectDesktopClient() {
-  if (typeof window === "undefined") return false
-  if (/Electron|StagedDesktop/i.test(navigator.userAgent)) return true
-  if (window.location.search.includes("client=desktop")) return true
-  try {
-    if (window.localStorage.getItem("staged-client") === "desktop") return true
-    if (window.sessionStorage.getItem("staged-client") === "desktop")
-      return true
-  } catch {
-    // ignore
-  }
-  return false
+export function AgentPanel() {
+  return <AgentPanelWorkspace />
 }
 
-export function AgentPanel({
-  initialIsDesktop = false,
-}: {
-  initialIsDesktop?: boolean
-}) {
-  // Start with the server's UA-based decision (matches SSR output, so no
-  // hydration mismatch). If the client-side check disagrees — e.g. the user
-  // agent was only branded after first request, or a localStorage marker was
-  // set later — upgrade once we're past hydration.
-  const [isDesktop, setIsDesktop] = useState(initialIsDesktop)
-
-  if (
-    !isDesktop &&
-    typeof window !== "undefined" &&
-    detectDesktopClient() &&
-    !initialIsDesktop
-  ) {
-    // Safe to call setState inline during render: the condition is idempotent
-    // and only flips once, so React will re-render with the correct value.
-    setIsDesktop(true)
-  }
-
-  if (!isDesktop) {
-    return <ConnectScreen onSetPath={() => {}} />
-  }
-
-  return <AgentPanelDesktop />
-}
-
-function AgentPanelDesktop() {
+function AgentPanelWorkspace() {
   const createSession = (name: string): AgentSession => ({
     id: createClientId(),
     name,
@@ -1814,7 +1701,7 @@ function AgentPanelDesktop() {
 
   // ── Connect screen ──
   if (!projectPath) {
-    return <ConnectScreen onSetPath={handleSwitchProject} />
+    return <LocalFolderPicker onSetPath={handleSwitchProject} />
   }
 
   // ── Main chat view ──

@@ -403,7 +403,6 @@ export function CreateTaskDialog({
                   ? new Date(`${dueDate}T00:00:00`).toISOString()
                   : undefined,
                 labels,
-                createdById: currentUser.id,
               })
             }}
           >

@@ -1,12 +1,17 @@
 import { z } from "zod"
-import { router, publicProcedure } from "../trpc"
+import { router, protectedProcedure } from "../trpc"
 import { docs, users } from "../../db/schema"
 import { eq, desc } from "drizzle-orm"
+import {
+  requireWorkspaceMember,
+  workspaceIdByDocId,
+} from "@/server/trpc/access"
 
 export const docRouter = router({
-  list: publicProcedure
+  list: protectedProcedure
     .input(z.object({ workspaceId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      await requireWorkspaceMember(ctx, input.workspaceId, ctx.userId)
       return ctx.db
         .select({
           id: docs.id,
@@ -23,9 +28,11 @@ export const docRouter = router({
         .orderBy(desc(docs.updatedAt))
     }),
 
-  getById: publicProcedure
+  getById: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      const workspaceId = await workspaceIdByDocId(ctx, input.id)
+      await requireWorkspaceMember(ctx, workspaceId, ctx.userId)
       const [doc] = await ctx.db
         .select({
           id: docs.id,
@@ -46,9 +53,11 @@ export const docRouter = router({
       return doc ?? null
     }),
 
-  listChildren: publicProcedure
+  listChildren: protectedProcedure
     .input(z.object({ parentId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      const workspaceId = await workspaceIdByDocId(ctx, input.parentId)
+      await requireWorkspaceMember(ctx, workspaceId, ctx.userId)
       return ctx.db
         .select({
           id: docs.id,
@@ -62,22 +71,22 @@ export const docRouter = router({
         .orderBy(desc(docs.updatedAt))
     }),
 
-  create: publicProcedure
+  create: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string().uuid(),
         title: z.string().default("Untitled"),
-        createdById: z.string().uuid(),
         parentId: z.string().uuid().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await requireWorkspaceMember(ctx, input.workspaceId, ctx.userId)
       const [doc] = await ctx.db
         .insert(docs)
         .values({
           workspaceId: input.workspaceId,
           title: input.title,
-          createdById: input.createdById,
+          createdById: ctx.userId,
           parentId: input.parentId ?? null,
         })
         .returning()
@@ -85,7 +94,7 @@ export const docRouter = router({
       return doc
     }),
 
-  update: publicProcedure
+  update: protectedProcedure
     .input(
       z.object({
         id: z.string().uuid(),
@@ -95,6 +104,8 @@ export const docRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const workspaceId = await workspaceIdByDocId(ctx, input.id)
+      await requireWorkspaceMember(ctx, workspaceId, ctx.userId)
       const { id, ...updates } = input
       const values: Record<string, unknown> = { updatedAt: new Date() }
 
@@ -111,9 +122,11 @@ export const docRouter = router({
       return doc
     }),
 
-  delete: publicProcedure
+  delete: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      const workspaceId = await workspaceIdByDocId(ctx, input.id)
+      await requireWorkspaceMember(ctx, workspaceId, ctx.userId)
       await ctx.db.delete(docs).where(eq(docs.id, input.id))
       return { success: true }
     }),

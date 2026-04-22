@@ -81,7 +81,6 @@ export function ThreadPanel({
           if (!currentUser) return
           sendMessage.mutate({
             channelId,
-            userId: currentUser.id,
             content,
             parentId,
             attachments,

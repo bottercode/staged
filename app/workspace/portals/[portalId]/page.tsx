@@ -362,7 +362,6 @@ export default function PortalManagePage() {
                     portalId: portal.id,
                     content: newUpdate.trim(),
                     type: updateType,
-                    createdById: currentUser.id,
                   })
                 }}
                 className="space-y-2"
@@ -728,7 +727,6 @@ export default function PortalManagePage() {
                   .split(",")
                   .map((label) => label.trim())
                   .filter(Boolean),
-                createdById: currentUser.id,
               })
             }}
             className="flex h-full flex-col"

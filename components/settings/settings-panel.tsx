@@ -9,32 +9,11 @@ import { Input } from "@/components/ui/input"
 import { trpc } from "@/lib/trpc/client"
 import { cn } from "@/lib/utils"
 import { useCurrentUser } from "@/lib/user-context"
-import {
-  DEFAULT_AGENT_SETTINGS,
-  readAgentSettings,
-  writeAgentSettings,
-} from "@/lib/agent-settings"
 
-type SettingsTab = "members" | "apps" | "workspace"
-
-type FieldKey =
-  | "anthropicApiKey"
-  | "openaiApiKey"
-  | "googleApiKey"
-  | "mistralApiKey"
-  | "xaiApiKey"
-
-const FIELDS: Array<{ key: FieldKey; label: string; placeholder: string }> = [
-  { key: "anthropicApiKey", label: "Anthropic", placeholder: "sk-ant-..." },
-  { key: "openaiApiKey", label: "OpenAI", placeholder: "sk-..." },
-  { key: "googleApiKey", label: "Google", placeholder: "AIza..." },
-  { key: "mistralApiKey", label: "Mistral", placeholder: "..." },
-  { key: "xaiApiKey", label: "xAI", placeholder: "xai-..." },
-]
+type SettingsTab = "members" | "workspace"
 
 const TAB_LABELS: Array<{ key: SettingsTab; label: string }> = [
   { key: "members", label: "Members" },
-  { key: "apps", label: "Apps" },
   { key: "workspace", label: "Workspace" },
 ]
 
@@ -60,14 +39,6 @@ export function SettingsPanel() {
   const [workspaceTitleDraft, setWorkspaceTitleDraft] = useState<string | null>(
     null
   )
-
-  const [values, setValues] = useState<Record<FieldKey, string>>({
-    anthropicApiKey: readAgentSettings().providerApiKeys.anthropicApiKey || "",
-    openaiApiKey: readAgentSettings().providerApiKeys.openaiApiKey || "",
-    googleApiKey: readAgentSettings().providerApiKeys.googleApiKey || "",
-    mistralApiKey: readAgentSettings().providerApiKeys.mistralApiKey || "",
-    xaiApiKey: readAgentSettings().providerApiKeys.xaiApiKey || "",
-  })
 
   const [linkRole, setLinkRole] = useState<"member" | "admin">("member")
   const [copiedInviteLink, setCopiedInviteLink] = useState(false)
@@ -132,29 +103,6 @@ export function SettingsPanel() {
   })
 
   const workspaceTitle = workspaceTitleDraft ?? workspaceName ?? ""
-
-  const handleSave = () => {
-    writeAgentSettings({
-      providerApiKeys: {
-        anthropicApiKey: values.anthropicApiKey.trim() || undefined,
-        openaiApiKey: values.openaiApiKey.trim() || undefined,
-        googleApiKey: values.googleApiKey.trim() || undefined,
-        mistralApiKey: values.mistralApiKey.trim() || undefined,
-        xaiApiKey: values.xaiApiKey.trim() || undefined,
-      },
-    })
-  }
-
-  const handleClear = () => {
-    writeAgentSettings(DEFAULT_AGENT_SETTINGS)
-    setValues({
-      anthropicApiKey: "",
-      openaiApiKey: "",
-      googleApiKey: "",
-      mistralApiKey: "",
-      xaiApiKey: "",
-    })
-  }
 
   const sortedMembers = useMemo(() => {
     return [...(membersQuery.data || [])].sort((a, b) =>
@@ -400,54 +348,6 @@ export function SettingsPanel() {
               </div>
             )}
 
-            {tab === "apps" && (
-              <div className="space-y-5">
-                <section>
-                  <h3 className="mb-2 px-1 text-[10px] font-semibold tracking-[0.12em] text-muted-foreground/80 uppercase">
-                    Model API Keys
-                  </h3>
-                  <div className="space-y-3 rounded-xl border border-border/60 bg-card p-4">
-                    {FIELDS.map((field) => (
-                      <div key={field.key} className="space-y-1">
-                        <p className="text-[11px] font-medium text-muted-foreground">
-                          {field.label}
-                        </p>
-                        <Input
-                          type="password"
-                          value={values[field.key]}
-                          placeholder={field.placeholder}
-                          className="h-8 text-[12px]"
-                          onChange={(event) =>
-                            setValues((prev) => ({
-                              ...prev,
-                              [field.key]: event.target.value,
-                            }))
-                          }
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </section>
-                <div className="flex justify-end gap-1.5">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 rounded-md text-[12px]"
-                    onClick={handleClear}
-                  >
-                    Clear
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="h-8 rounded-md text-[12px]"
-                    onClick={handleSave}
-                  >
-                    Save
-                  </Button>
-                </div>
-              </div>
-            )}
-
             {tab === "workspace" && (
               <div className="space-y-5">
                 <section>
@@ -529,7 +429,6 @@ export function SettingsPanel() {
                         if (!workspaceId || !currentUserId) return
                         leaveWorkspace.mutate({
                           workspaceId,
-                          userId: currentUserId,
                         })
                       }}
                     >

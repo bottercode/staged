@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { router, publicProcedure } from "../trpc"
+import { router, protectedProcedure, publicProcedure } from "../trpc"
 import {
   portals,
   portalUpdates,
@@ -12,6 +12,10 @@ import {
   tasks,
 } from "../../db/schema"
 import { eq, asc, desc, inArray, sql } from "drizzle-orm"
+import {
+  requireWorkspaceMember,
+  workspaceIdByPortalId,
+} from "@/server/trpc/access"
 
 async function ensureTaskLabelsColumn(db: {
   execute: (query: any) => Promise<unknown>
@@ -36,9 +40,10 @@ async function ensurePortalReviewColumns(db: {
 }
 
 export const portalRouter = router({
-  list: publicProcedure
+  list: protectedProcedure
     .input(z.object({ workspaceId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      await requireWorkspaceMember(ctx, input.workspaceId, ctx.userId)
       return ctx.db
         .select({
           id: portals.id,
@@ -53,9 +58,11 @@ export const portalRouter = router({
         .orderBy(desc(portals.createdAt))
     }),
 
-  getById: publicProcedure
+  getById: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      const workspaceId = await workspaceIdByPortalId(ctx, input.id)
+      await requireWorkspaceMember(ctx, workspaceId, ctx.userId)
       await ensurePortalReviewColumns(ctx.db)
       const [portal] = await ctx.db
         .select()
@@ -174,7 +181,7 @@ export const portalRouter = router({
       return { ...portal, updates, progress }
     }),
 
-  create: publicProcedure
+  create: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string().uuid(),
@@ -183,10 +190,10 @@ export const portalRouter = router({
         clientEmail: z.string().email().optional(),
         description: z.string().optional(),
         boardId: z.string().uuid().optional(),
-        createdById: z.string().uuid(),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await requireWorkspaceMember(ctx, input.workspaceId, ctx.userId)
       const slug =
         input.name
           .toLowerCase()
@@ -205,30 +212,31 @@ export const portalRouter = router({
           clientEmail: input.clientEmail,
           description: input.description,
           boardId: input.boardId,
-          createdById: input.createdById,
+          createdById: ctx.userId,
         })
         .returning()
 
       return portal
     }),
 
-  addUpdate: publicProcedure
+  addUpdate: protectedProcedure
     .input(
       z.object({
         portalId: z.string().uuid(),
         content: z.string().min(1),
         type: z.enum(["update", "deliverable"]).default("update"),
-        createdById: z.string().uuid(),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const workspaceId = await workspaceIdByPortalId(ctx, input.portalId)
+      await requireWorkspaceMember(ctx, workspaceId, ctx.userId)
       const [update] = await ctx.db
         .insert(portalUpdates)
         .values({
           portalId: input.portalId,
           content: input.content,
           type: input.type,
-          createdById: input.createdById,
+          createdById: ctx.userId,
         })
         .returning()
 
@@ -281,7 +289,7 @@ export const portalRouter = router({
       return update
     }),
 
-  createIssue: publicProcedure
+  createIssue: protectedProcedure
     .input(
       z.object({
         portalId: z.string().uuid(),
@@ -293,7 +301,6 @@ export const portalRouter = router({
         dueDate: z.string().datetime().optional(),
         assigneeId: z.string().uuid().optional(),
         labels: z.array(z.string().min(1).max(40)).optional(),
-        createdById: z.string().uuid(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -314,6 +321,7 @@ export const portalRouter = router({
           message: "Portal not found",
         })
       }
+      await requireWorkspaceMember(ctx, portal.workspaceId, ctx.userId)
 
       const uniqueBoardIds = Array.from(new Set(input.boardIds))
       const selectedBoards = await ctx.db
@@ -421,7 +429,7 @@ export const portalRouter = router({
             dueDate: input.dueDate ? new Date(input.dueDate) : null,
             labels: input.labels ?? [],
             position: (maxPos?.max ?? -1) + 1,
-            createdById: input.createdById,
+            createdById: ctx.userId,
           })
           .returning({
             id: tasks.id,

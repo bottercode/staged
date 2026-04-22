@@ -491,7 +491,6 @@ export function AgentSettingsDialog({
                   if (!workspaceId || !currentUserId) return
                   leaveWorkspace.mutate({
                     workspaceId,
-                    userId: currentUserId,
                   })
                 }}
               >

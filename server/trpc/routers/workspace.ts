@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { router, publicProcedure } from "../trpc"
+import { router, protectedProcedure } from "../trpc"
 import {
   workspaces,
   workspaceMembers,
@@ -17,10 +17,13 @@ import {
 import { and, desc, eq, ne, sql } from "drizzle-orm"
 import { sendWorkspaceInviteEmail } from "@/server/email"
 import { randomUUID } from "crypto"
+import {
+  requireWorkspaceAdmin,
+  requireWorkspaceMember,
+} from "@/server/trpc/access"
 
 export const workspaceRouter = router({
-  list: publicProcedure.query(async ({ ctx }) => {
-    if (!ctx.userId) return []
+  list: protectedProcedure.query(async ({ ctx }) => {
     return ctx.db
       .selectDistinct({
         id: workspaces.id,
@@ -35,14 +38,14 @@ export const workspaceRouter = router({
   }),
 
   // Safety endpoint to repair accidental duplicate memberships from old flows.
-  dedupeMemberships: publicProcedure
+  dedupeMemberships: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string().uuid(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.userId) return { ok: false }
+      await requireWorkspaceMember(ctx, input.workspaceId, ctx.userId)
       const memberships = await ctx.db
         .select()
         .from(workspaceMembers)
@@ -63,7 +66,7 @@ export const workspaceRouter = router({
     }),
 
   // For MVP: get the first (only) workspace
-  getDefault: publicProcedure
+  getDefault: protectedProcedure
     .input(
       z
         .object({
@@ -73,7 +76,7 @@ export const workspaceRouter = router({
     )
     .query(async ({ ctx, input }) => {
       const preferredId = input?.preferredWorkspaceId
-      if (preferredId && ctx.userId) {
+      if (preferredId) {
         const [preferred] = await ctx.db
           .select({
             id: workspaces.id,
@@ -96,46 +99,28 @@ export const workspaceRouter = router({
         if (preferred) return preferred
       }
 
-      if (ctx.userId) {
-        const [workspace] = await ctx.db
-          .select({
-            id: workspaces.id,
-            name: workspaces.name,
-            slug: workspaces.slug,
-            createdAt: workspaces.createdAt,
-          })
-          .from(workspaceMembers)
-          .innerJoin(
-            workspaces,
-            eq(workspaceMembers.workspaceId, workspaces.id)
-          )
-          .where(eq(workspaceMembers.userId, ctx.userId))
-          .orderBy(desc(workspaces.createdAt))
-          .limit(1)
-        return workspace ?? null
-      }
-
       const [workspace] = await ctx.db
-        .select()
-        .from(workspaces)
+        .select({
+          id: workspaces.id,
+          name: workspaces.name,
+          slug: workspaces.slug,
+          createdAt: workspaces.createdAt,
+        })
+        .from(workspaceMembers)
+        .innerJoin(workspaces, eq(workspaceMembers.workspaceId, workspaces.id))
+        .where(eq(workspaceMembers.userId, ctx.userId))
         .orderBy(desc(workspaces.createdAt))
         .limit(1)
       return workspace ?? null
     }),
 
-  create: publicProcedure
+  create: protectedProcedure
     .input(
       z.object({
         name: z.string().min(1).max(80),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.userId) {
-        throw new TRPCError({
-          code: "UNAUTHORIZED",
-          message: "Authentication required",
-        })
-      }
       const normalizedName = input.name.trim().toLowerCase()
       const [existingByName] = await ctx.db
         .select({
@@ -282,13 +267,14 @@ export const workspaceRouter = router({
       return workspace
     }),
 
-  getMembers: publicProcedure
+  getMembers: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string().uuid(),
       })
     )
     .query(async ({ ctx, input }) => {
+      await requireWorkspaceMember(ctx, input.workspaceId, ctx.userId)
       return ctx.db
         .select({
           userId: users.id,
@@ -303,7 +289,7 @@ export const workspaceRouter = router({
         .where(eq(workspaceMembers.workspaceId, input.workspaceId))
     }),
 
-  inviteMember: publicProcedure
+  inviteMember: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string().uuid(),
@@ -312,6 +298,7 @@ export const workspaceRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await requireWorkspaceAdmin(ctx, input.workspaceId, ctx.userId)
       const email = input.email.trim().toLowerCase()
 
       const [existingUser] = await ctx.db
@@ -385,7 +372,7 @@ export const workspaceRouter = router({
           email,
           role: input.role,
           status: "pending",
-          invitedById: ctx.userId ?? null,
+          invitedById: ctx.userId,
         })
         .returning()
 
@@ -415,13 +402,14 @@ export const workspaceRouter = router({
       }
     }),
 
-  listInvites: publicProcedure
+  listInvites: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string().uuid(),
       })
     )
     .query(async ({ ctx, input }) => {
+      await requireWorkspaceAdmin(ctx, input.workspaceId, ctx.userId)
       return ctx.db
         .select()
         .from(workspaceInvites)
@@ -434,7 +422,7 @@ export const workspaceRouter = router({
         .orderBy(desc(workspaceInvites.createdAt))
     }),
 
-  revokeInvite: publicProcedure
+  revokeInvite: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string().uuid(),
@@ -442,6 +430,7 @@ export const workspaceRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await requireWorkspaceAdmin(ctx, input.workspaceId, ctx.userId)
       await ctx.db
         .delete(workspaceInvites)
         .where(
@@ -453,7 +442,7 @@ export const workspaceRouter = router({
       return { ok: true }
     }),
 
-  removeMember: publicProcedure
+  removeMember: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string().uuid(),
@@ -461,6 +450,7 @@ export const workspaceRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await requireWorkspaceAdmin(ctx, input.workspaceId, ctx.userId)
       const workspaceChannelIds = await ctx.db
         .select({ id: channels.id })
         .from(channels)
@@ -489,13 +479,14 @@ export const workspaceRouter = router({
       return { ok: true }
     }),
 
-  getInviteLink: publicProcedure
+  getInviteLink: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string().uuid(),
       })
     )
     .query(async ({ ctx, input }) => {
+      await requireWorkspaceAdmin(ctx, input.workspaceId, ctx.userId)
       const [link] = await ctx.db
         .select()
         .from(workspaceInviteLinks)
@@ -518,7 +509,7 @@ export const workspaceRouter = router({
       }
     }),
 
-  createInviteLink: publicProcedure
+  createInviteLink: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string().uuid(),
@@ -526,6 +517,7 @@ export const workspaceRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await requireWorkspaceAdmin(ctx, input.workspaceId, ctx.userId)
       await ctx.db
         .update(workspaceInviteLinks)
         .set({ isActive: false })
@@ -539,7 +531,7 @@ export const workspaceRouter = router({
           token,
           isActive: true,
           role: input.role,
-          createdById: ctx.userId ?? null,
+          createdById: ctx.userId,
         })
         .returning()
 
@@ -551,7 +543,7 @@ export const workspaceRouter = router({
       }
     }),
 
-  revokeInviteLink: publicProcedure
+  revokeInviteLink: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string().uuid(),
@@ -559,6 +551,7 @@ export const workspaceRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await requireWorkspaceAdmin(ctx, input.workspaceId, ctx.userId)
       await ctx.db
         .update(workspaceInviteLinks)
         .set({ isActive: false })
@@ -571,7 +564,7 @@ export const workspaceRouter = router({
       return { ok: true }
     }),
 
-  updateTitle: publicProcedure
+  updateTitle: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string().uuid(),
@@ -579,6 +572,7 @@ export const workspaceRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await requireWorkspaceAdmin(ctx, input.workspaceId, ctx.userId)
       const normalizedName = input.name.trim().toLowerCase()
       const [nameConflict] = await ctx.db
         .select({ id: workspaces.id })
@@ -616,14 +610,14 @@ export const workspaceRouter = router({
       return updated ?? null
     }),
 
-  leave: publicProcedure
+  leave: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string().uuid(),
-        userId: z.string().uuid(),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await requireWorkspaceMember(ctx, input.workspaceId, ctx.userId)
       const workspaceChannelIds = await ctx.db
         .select({ id: channels.id })
         .from(channels)
@@ -633,17 +627,17 @@ export const workspaceRouter = router({
           .delete(channelMembers)
           .where(
             and(
-              eq(channelMembers.channelId, channel.id),
-              eq(channelMembers.userId, input.userId)
+                eq(channelMembers.channelId, channel.id),
+                eq(channelMembers.userId, ctx.userId)
+              )
             )
-          )
       }
       await ctx.db
         .delete(workspaceMembers)
         .where(
           and(
             eq(workspaceMembers.workspaceId, input.workspaceId),
-            eq(workspaceMembers.userId, input.userId)
+            eq(workspaceMembers.userId, ctx.userId)
           )
         )
       return { ok: true }

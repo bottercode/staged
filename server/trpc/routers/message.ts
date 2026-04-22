@@ -1,13 +1,29 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { router, publicProcedure } from "../trpc"
+import { router, protectedProcedure } from "../trpc"
 import {
+  channels,
+  channelMembers,
   messages,
   users,
   directMessageMembers,
+  workspaceMembers,
   messageReactions,
 } from "../../db/schema"
-import { eq, and, isNull, desc, asc, sql, count, inArray } from "drizzle-orm"
+import {
+  eq,
+  and,
+  isNull,
+  desc,
+  asc,
+  sql,
+  count,
+  inArray,
+  gt,
+  or,
+  isNotNull,
+} from "drizzle-orm"
+import { requireChannelAccess, requireDmRoomMember } from "@/server/trpc/access"
 
 type ReactionSummary = {
   emoji: string
@@ -80,7 +96,7 @@ async function ensureMessageAttachmentsColumn(db: {
 
 export const messageRouter = router({
   // Get message counts per channel and DM room for unread tracking
-  counts: publicProcedure
+  counts: protectedProcedure
     .input(
       z.object({
         channelIds: z.array(z.string().uuid()),
@@ -89,8 +105,38 @@ export const messageRouter = router({
     )
     .query(async ({ ctx, input }) => {
       const result: Record<string, number> = {}
+      let allowedChannelIds: string[] = []
+      let allowedDmRoomIds: string[] = []
 
       if (input.channelIds.length > 0) {
+        const allowedChannels = await ctx.db
+          .select({ id: channels.id })
+          .from(channels)
+          .innerJoin(
+            workspaceMembers,
+            and(
+              eq(workspaceMembers.workspaceId, channels.workspaceId),
+              eq(workspaceMembers.userId, ctx.userId)
+            )
+          )
+          .leftJoin(
+            channelMembers,
+            and(
+              eq(channelMembers.channelId, channels.id),
+              eq(channelMembers.userId, ctx.userId)
+            )
+          )
+          .where(
+            and(
+              inArray(channels.id, input.channelIds),
+              or(eq(channels.isPrivate, false), isNotNull(channelMembers.id))
+            )
+          )
+
+        allowedChannelIds = allowedChannels.map((row) => row.id)
+      }
+
+      if (allowedChannelIds.length > 0) {
         const channelCounts = await ctx.db
           .select({
             channelId: messages.channelId,
@@ -99,7 +145,7 @@ export const messageRouter = router({
           .from(messages)
           .where(
             and(
-              inArray(messages.channelId, input.channelIds),
+              inArray(messages.channelId, allowedChannelIds),
               isNull(messages.parentId)
             )
           )
@@ -111,13 +157,26 @@ export const messageRouter = router({
       }
 
       if (input.dmRoomIds.length > 0) {
+        const allowedDmRooms = await ctx.db
+          .select({ roomId: directMessageMembers.roomId })
+          .from(directMessageMembers)
+          .where(
+            and(
+              eq(directMessageMembers.userId, ctx.userId),
+              inArray(directMessageMembers.roomId, input.dmRoomIds)
+            )
+          )
+        allowedDmRoomIds = allowedDmRooms.map((row) => row.roomId)
+      }
+
+      if (allowedDmRoomIds.length > 0) {
         const dmCounts = await ctx.db
           .select({
             dmRoomId: messages.dmRoomId,
             count: count(),
           })
           .from(messages)
-          .where(inArray(messages.dmRoomId, input.dmRoomIds))
+          .where(inArray(messages.dmRoomId, allowedDmRoomIds))
           .groupBy(messages.dmRoomId)
 
         for (const row of dmCounts) {
@@ -128,7 +187,7 @@ export const messageRouter = router({
       return result
     }),
 
-  list: publicProcedure
+  list: protectedProcedure
     .input(
       z.object({
         channelId: z.string().uuid(),
@@ -138,6 +197,30 @@ export const messageRouter = router({
     )
     .query(async ({ ctx, input }) => {
       await ensureMessageAttachmentsColumn(ctx.db)
+      await requireChannelAccess(ctx, input.channelId, ctx.userId)
+      let cursorWhere:
+        | ReturnType<typeof or>
+        | undefined
+      if (input.cursor) {
+        const [cursorMessage] = await ctx.db
+          .select({
+            id: messages.id,
+            createdAt: messages.createdAt,
+            channelId: messages.channelId,
+          })
+          .from(messages)
+          .where(eq(messages.id, input.cursor))
+          .limit(1)
+        if (cursorMessage && cursorMessage.channelId === input.channelId) {
+          cursorWhere = or(
+            gt(messages.createdAt, cursorMessage.createdAt),
+            and(
+              eq(messages.createdAt, cursorMessage.createdAt),
+              gt(messages.id, cursorMessage.id)
+            )
+          )
+        }
+      }
       const rows = await ctx.db
         .select({
           id: messages.id,
@@ -157,7 +240,8 @@ export const messageRouter = router({
         .where(
           and(
             eq(messages.channelId, input.channelId),
-            isNull(messages.parentId)
+            isNull(messages.parentId),
+            cursorWhere
           )
         )
         .orderBy(asc(messages.createdAt))
@@ -210,12 +294,11 @@ export const messageRouter = router({
       }))
     }),
 
-  send: publicProcedure
+  send: protectedProcedure
     .input(
       z.object({
         channelId: z.string().uuid().optional(),
         dmRoomId: z.string().uuid().optional(),
-        userId: z.string().uuid(),
         content: z.string(),
         parentId: z.string().uuid().optional(),
         attachments: z
@@ -232,36 +315,51 @@ export const messageRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await ensureMessageAttachmentsColumn(ctx.db)
-      if (!ctx.userId || ctx.userId !== input.userId) {
-        throw new TRPCError({
-          code: "UNAUTHORIZED",
-          message: "Authentication required",
-        })
-      }
-
       if (!input.channelId && !input.dmRoomId) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Message must target a channel or DM room",
         })
       }
+      if (input.channelId && input.dmRoomId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Message cannot target both a channel and a DM room",
+        })
+      }
 
       if (input.dmRoomId) {
-        const [membership] = await ctx.db
-          .select({ userId: directMessageMembers.userId })
-          .from(directMessageMembers)
-          .where(
-            and(
-              eq(directMessageMembers.roomId, input.dmRoomId),
-              eq(directMessageMembers.userId, ctx.userId)
-            )
-          )
+        await requireDmRoomMember(ctx, input.dmRoomId, ctx.userId)
+      }
+
+      if (input.channelId) {
+        await requireChannelAccess(ctx, input.channelId, ctx.userId)
+      }
+
+      if (input.parentId) {
+        const [parent] = await ctx.db
+          .select({
+            channelId: messages.channelId,
+            dmRoomId: messages.dmRoomId,
+          })
+          .from(messages)
+          .where(eq(messages.id, input.parentId))
           .limit(1)
 
-        if (!membership) {
+        if (!parent) {
           throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "You are not a member of this DM room",
+            code: "NOT_FOUND",
+            message: "Parent message not found",
+          })
+        }
+
+        if (
+          (input.channelId && parent.channelId !== input.channelId) ||
+          (input.dmRoomId && parent.dmRoomId !== input.dmRoomId)
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Reply must stay within the same conversation",
           })
         }
       }
@@ -271,7 +369,7 @@ export const messageRouter = router({
         .values({
           channelId: input.channelId,
           dmRoomId: input.dmRoomId,
-          userId: input.userId,
+          userId: ctx.userId,
           content: input.content,
           parentId: input.parentId,
           attachments: input.attachments ?? [],
@@ -289,7 +387,7 @@ export const messageRouter = router({
       return message
     }),
 
-  thread: publicProcedure
+  thread: protectedProcedure
     .input(z.object({ parentId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       await ensureMessageAttachmentsColumn(ctx.db)
@@ -306,10 +404,23 @@ export const messageRouter = router({
           userAvatar: users.avatarUrl,
           attachments: messages.attachments,
           isPinned: messages.isPinned,
+          channelId: messages.channelId,
+          dmRoomId: messages.dmRoomId,
         })
         .from(messages)
         .innerJoin(users, eq(messages.userId, users.id))
         .where(eq(messages.id, input.parentId))
+
+      if (parent?.channelId) {
+        await requireChannelAccess(ctx, parent.channelId, ctx.userId)
+      } else if (parent?.dmRoomId) {
+        await requireDmRoomMember(ctx, parent.dmRoomId, ctx.userId)
+      } else {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Message thread not found",
+        })
+      }
 
       const replies = await ctx.db
         .select({
@@ -343,7 +454,19 @@ export const messageRouter = router({
       return {
         parent: parent
           ? {
-              ...parent,
+              ...{
+                id: parent.id,
+                content: parent.content,
+                createdAt: parent.createdAt,
+                updatedAt: parent.updatedAt,
+                parentId: parent.parentId,
+                replyCount: parent.replyCount,
+                userId: parent.userId,
+                userName: parent.userName,
+                userAvatar: parent.userAvatar,
+                attachments: parent.attachments,
+                isPinned: parent.isPinned,
+              },
               replyPreviewUsers: [] as Array<{
                 id: string
                 name: string
@@ -364,7 +487,7 @@ export const messageRouter = router({
       }
     }),
 
-  toggleReaction: publicProcedure
+  toggleReaction: protectedProcedure
     .input(
       z.object({
         messageId: z.string().uuid(),
@@ -372,9 +495,23 @@ export const messageRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.userId) {
-        throw new TRPCError({ code: "UNAUTHORIZED" })
+      const [target] = await ctx.db
+        .select({
+          channelId: messages.channelId,
+          dmRoomId: messages.dmRoomId,
+        })
+        .from(messages)
+        .where(eq(messages.id, input.messageId))
+        .limit(1)
+      if (!target) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Message not found" })
       }
+      if (target.channelId) {
+        await requireChannelAccess(ctx, target.channelId, ctx.userId)
+      } else if (target.dmRoomId) {
+        await requireDmRoomMember(ctx, target.dmRoomId, ctx.userId)
+      }
+
       const [existing] = await ctx.db
         .select({ id: messageReactions.id })
         .from(messageReactions)
@@ -401,18 +538,25 @@ export const messageRouter = router({
       return { removed: false }
     }),
 
-  togglePin: publicProcedure
+  togglePin: protectedProcedure
     .input(z.object({ messageId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.userId) {
-        throw new TRPCError({ code: "UNAUTHORIZED" })
-      }
       const [target] = await ctx.db
-        .select({ id: messages.id, isPinned: messages.isPinned })
+        .select({
+          id: messages.id,
+          isPinned: messages.isPinned,
+          channelId: messages.channelId,
+          dmRoomId: messages.dmRoomId,
+        })
         .from(messages)
         .where(eq(messages.id, input.messageId))
         .limit(1)
       if (!target) throw new TRPCError({ code: "NOT_FOUND" })
+      if (target.channelId) {
+        await requireChannelAccess(ctx, target.channelId, ctx.userId)
+      } else if (target.dmRoomId) {
+        await requireDmRoomMember(ctx, target.dmRoomId, ctx.userId)
+      }
       const next = !target.isPinned
       await ctx.db
         .update(messages)
@@ -425,9 +569,10 @@ export const messageRouter = router({
       return { isPinned: next }
     }),
 
-  listPinned: publicProcedure
+  listPinned: protectedProcedure
     .input(z.object({ channelId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      await requireChannelAccess(ctx, input.channelId, ctx.userId)
       return ctx.db
         .select({
           id: messages.id,
@@ -450,9 +595,10 @@ export const messageRouter = router({
         .orderBy(desc(messages.pinnedAt))
     }),
 
-  listFiles: publicProcedure
+  listFiles: protectedProcedure
     .input(z.object({ channelId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      await requireChannelAccess(ctx, input.channelId, ctx.userId)
       const rows = await ctx.db
         .select({
           id: messages.id,
@@ -487,9 +633,10 @@ export const messageRouter = router({
       return files
     }),
 
-  listLinks: publicProcedure
+  listLinks: protectedProcedure
     .input(z.object({ channelId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      await requireChannelAccess(ctx, input.channelId, ctx.userId)
       const rows = await ctx.db
         .select({
           id: messages.id,
@@ -527,20 +674,13 @@ export const messageRouter = router({
       return links
     }),
 
-  delete: publicProcedure
+  delete: protectedProcedure
     .input(
       z.object({
         messageId: z.string().uuid(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.userId) {
-        throw new TRPCError({
-          code: "UNAUTHORIZED",
-          message: "Authentication required",
-        })
-      }
-
       const [target] = await ctx.db
         .select({
           id: messages.id,
@@ -565,6 +705,12 @@ export const messageRouter = router({
           code: "FORBIDDEN",
           message: "You can only delete your own messages",
         })
+      }
+
+      if (target.channelId) {
+        await requireChannelAccess(ctx, target.channelId, ctx.userId)
+      } else if (target.dmRoomId) {
+        await requireDmRoomMember(ctx, target.dmRoomId, ctx.userId)
       }
 
       await ctx.db.delete(messages).where(eq(messages.id, input.messageId))
